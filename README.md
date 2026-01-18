@@ -15,11 +15,7 @@ Place the UniquePets folder in your HorizonXI\Game\addons folder, then add the a
 
 ## Setup
 
-UniquePets requires just a few things from you inside of the Settings.Lua file: Your pet name, and the model number to replace it with.
-
-You may also replace other player's pet models (or they may share their changes with you!), in which case you'll also use their name.
-
-Look at the settings.lua for examples.
+Load the addon and in-game type /uniquepets or /upets to bring up the window.
 
 ## Finding Model Numbers
 
