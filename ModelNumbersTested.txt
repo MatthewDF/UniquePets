@@ -1,0 +1,297 @@
+-Known/Suspected Models ----------------------------------
+
+1: A Galka
+4: Orc Chieften
+9: Ice Spirit
+10: Wind Spirit
+11: Earth Spirit
+12: Water Spirit
+13: Thunder Spirit
+14: Shiva
+15: Dark Spirit
+16: Garuda
+17: Fenrir
+18: Ifrit
+19: Titan
+20: Leviathan
+21: Garuda
+22: Shiva, again?
+23: Ramuh
+24: Wyvern, Blue
+25: Diabolos
+26: Odin
+27: Alexander
+28: Cait Sith
+29: Atomos
+30: Siren
+31: Mandragora
+32: Hume, male
+37: Hume, female
+42: Elvaan, male
+43:
+44: 
+45: 
+46: 
+47: female ?
+48:
+49:
+50: bad
+
+60: Lion
+
+70: Bastok ninja chick
+
+80: bad
+
+99: Fat hume, yellow shirt
+
+119: Hume Child
+120: Bad
+
+200: Upper Jeuno Elvaan Doctor dude
+
+300: Mandragora, again
+301: Black Mandragora
+302: Orange-wearing Mandragora
+
+304: Zilart Statue
+305: Zilart Statue, special
+306/7: Zilart Statue
+
+309: Byakko/white blue purple tiger
+
+311: TINY SPIDER
+312: Yellow/black spider
+313: Black/red spider
+314/5: Zilart glowing mini orb
+
+345: Battering Ram EXTRA BIG
+346/7: Battering Ram
+
+349: Black/yellow/purle Pugil
+350: Black/yellow/purle Pugil EXTRA BIG
+
+
+355: THE WORLD'S SMALLEST CRAB
+358: Crab with barnacles on back
+359: Courier carrie crab EXTRA BIG
+360: Courier Carrie crab
+
+364: Bog/undead black dog
+
+366: Crab with barnacles on back
+367: Couerl
+
+369: Purple ghost with red lines 
+
+372: Cactuar
+373: Cactrot Rapido!
+374: Cactuar, flowered
+385: Hecteyes EXTRA BIG
+386: Hecteyes
+
+390: Cherry Blossom Treant -- Very nicely sized!
+
+396: Crawler
+397: Crawler, green
+398: Wyvern
+
+400: Adamantoise
+401: Adamantoise, smaller
+
+402: Manticore
+403: Kirin
+
+404: Behemoth
+405: Behemoth, but cooler style
+
+410: Beetle with horn
+
+412: Zilart Floating Pot/Jar
+413: Zilart floating pot/jar, special
+
+423: Weapon, rapier
+
+430: Cardian, spear
+432: Rock golem
+433: Rock golem, red
+
+500: Goblin, regular
+
+516: Beelzebub, Lord of the Flies!?
+
+526: Eo'euvhi
+
+530: Wyvern, Aern Wynav
+
+532: Fomor Elvaan
+
+
+562/3: Cait Sith
+
+575: Skeleton, club
+576/7/8: Skeleton, scythe
+
+600: Yagudo
+
+610: Ouryu
+620-700+: Beastmen
+
+700: Red, armored Moblin
+
+800: Yet another Mandragora
+
+910: Bad
+
+950: Bad
+
+999: bad
+
+1010: Orc mage
+
+1045: Sea Citizen Sphere Thing
+1050: Dynamis Orc
+1060: Dynamis Yag Statue
+
+1072: Promathia
+1073: Promathia, Stage 2/fil
+1074: Bahamut
+1075/6: Ultima
+1079: Omega
+
+
+1080: Sky Zilart Mini-Orb
+
+1096: Skeleton, short sword
+
+1100: Promyvion structure
+1101: Skeleton, dagger
+1102/3/4/5: Empty Gate Receptable
+1106/7/8: Empty stray
+1109: Skeleton, Cutlass
+1110: Empty stray, light?
+1111: Empty Stray (color?)
+1112: Empty hound, dark
+1113: Empty hound thingy, Lightning
+1114: Empty hound thingy, Light
+1115: Empty hound thingy, Water?
+1116: Emptt hound thingy, Wind?
+1117: Empty two-leg
+1118: Skeleton, hand-axe
+1119: Empty two-leg
+
+1126: Empty boss bulgy eyes, Light
+1127: Empty boss bulgy eyes, wind
+
+1129: EBF, Dark
+1130: Empty boss fatty, lightning
+
+1134: EBT, Dark
+1135: EBT, Lightning
+
+1138: EBT, Wind
+1139: Empty boss tall, Light
+
+1145: Mini Diabolos!
+
+1146: Skeleton, staff
+
+1150: Bad
+
+1157: Eo'zdei
+
+1160: Sea hex-sphere thingy
+
+1200/1/5: Tonberry
+
+1210/20: Siren
+
+1230: Tonberry
+
+1240: Bastok Christmas Fountain
+
+1250: Tonberry King
+
+1270: Antican, dagger
+
+1301/10/20/30: Sahagin
+
+1340: Bad
+
+1350: Eft
+
+1355/6: Bugbear
+
+1358: Buffalo
+
+1360: Wicked looking Minotaur
+1361: Shell creature
+
+1363: Undead Lich
+
+1365: Hippogryph
+
+1370/1/3/4: Aw'aern
+
+1395: Glitchy Light Spirit?
+
+1400-1500: Story/Expansions NPCs?
+
+1500-1600+: ToAU?
+
+1750: Skeleton, runic gold dagger
+1753/4/5: Skeleton runic gold dagger
+1760: Skeleton, runic gold speer
+1756/7: Skeleton runic gold cutlass/sword
+
+1764: SKRG trident
+
+1766: SKRG wooden staff
+
+1767/8/9: Skeleton runic gold staff
+
+1778: SUPER AUTOMATON
+
+1792: Nyzul floating scroll thing
+
+1811: FROG WIZARD
+1812: Frog
+1813: Frog wizard, red
+
+1819: Salvage ancient mine, single
+1820: Salvage ancient mines thing
+
+1835: MINI ALEXANDER elemental?
+1836: MINI ODIN elemental?
+
+1876: Air Pixie, glitchy?
+
+1888: Ice pixie, glitchy
+
+1973: PUP Automaton, Soul red
+1974: PUP Automaton, VA
+
+1997: Baby chicabo
+1996: Chocobo egg
+
+2000: Adolescent chocobo of some color?
+
+2030: Pixie
+2031: Pixie, white/red/ dark purple
+2032: Pixie, dark purple/blue
+
+2064: Pixie, dark green
+
+2068: Flying book
+
+2098: Frog, blue
+
+2100: Hooded skeleton, scythe
+2101: Pink/purple Mandragora
+
+2150: Sick green elemental?
+
+3000: SHANTOTO
+
+
+--Bad?: 33, 34, 35, 36, 38, 39, 40, 41, 43, 44, 45, 46, 49
