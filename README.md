@@ -5,9 +5,7 @@ This addon for Ashita allows you to set a model for your pet and for others', wh
 
 <img width="893" height="495" alt="Screenshot 2026-01-23 164946" src="https://github.com/user-attachments/assets/2b744ab1-4587-41cc-8558-06172390e7fc" />
 <img width="655" height="585" alt="image" src="https://github.com/user-attachments/assets/c43d9087-4af2-45f2-915b-02654277a149" />
-<img width="489" height="351" alt="image" src="https://github.com/user-attachments/assets/4bee0cd9-c143-4c51-862a-af1197550b2c" />
-
-
+<img width="520" height="445" alt="image" src="https://github.com/user-attachments/assets/679d694a-1330-4607-8ec0-af88d4c7a8e8" />
 
 ## Installation
 
