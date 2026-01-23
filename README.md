@@ -3,7 +3,7 @@
 
 This addon for Ashita allows you to set a model for your pet and for others', while keeping your change unique. That means you can replace your Wyvern, for example, but every other Wyvern will remain unchanged.
 
-<img width="489" height="351" alt="image" src="https://github.com/user-attachments/assets/4481f58a-87b2-425b-9e72-4d23973cdf36" />
+<img width="893" height="495" alt="Screenshot 2026-01-23 164946" src="https://github.com/user-attachments/assets/2b744ab1-4587-41cc-8558-06172390e7fc" />
 <img width="655" height="585" alt="image" src="https://github.com/user-attachments/assets/c43d9087-4af2-45f2-915b-02654277a149" />
 <img width="489" height="351" alt="image" src="https://github.com/user-attachments/assets/4bee0cd9-c143-4c51-862a-af1197550b2c" />
 
@@ -13,9 +13,11 @@ This addon for Ashita allows you to set a model for your pet and for others', wh
 
 Place the UniquePets folder in your HorizonXI\Game\addons folder, then add the addon to your default.txt in HorizonXI\Game\scripts.
 
-## Setup
+## How to Use
 
-Load the addon and in-game type /uniquepets or /upets to bring up the window.
+* Load the addon and in-game type /uniquepets or /upets to bring up the window.
+* Add a pet name and a model number of your choice (there's a .txt file with some I've found, and more info below.)
+* Pet and Player names are case-sensitive!
 
 ## Finding Model Numbers
 
