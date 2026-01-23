@@ -139,6 +139,8 @@
 
 700: Red, armored Moblin
 
+761: Wyvern, Dark - Dynamis
+
 800: Yet another Mandragora
 
 910: Bad
@@ -220,6 +222,8 @@
 
 1350: Eft
 
+1353: Diremite
+
 1355/6: Bugbear
 
 1358: Buffalo
@@ -253,6 +257,8 @@
 1778: SUPER AUTOMATON
 
 1792: Nyzul floating scroll thing
+
+1800: Flan, yellow/red
 
 1811: FROG WIZARD
 1812: Frog
@@ -293,5 +299,83 @@
 
 3000: SHANTOTO
 
+3019: ShikareeZ
 
---Bad?: 33, 34, 35, 36, 38, 39, 40, 41, 43, 44, 45, 46, 49
+3086: Zeid
+3087: Halver
+
+
+???: 52
+Telepoint: 55
+Defoliate Treant: 388
+Malboro: 380
+Great Ameretat: 382
+
+Vanguard's Scorpion: 284
+Waojam Tiger: 308
+Woodland Runner: 317
+Suhur Mas: 348
+Atkorkamuy: 352
+
+Eschan Vulture: 445
+Eschan Sh Drag: 420
+Eschan Opo-Opo: 416
+
+Doom Mage: 564
+Doom Soldier: 572
+Eschan Warrior: 572
+
+Vanguard's Wyvern: 761
+
+Adamantking Effigy: 1058
+Ze'Vho Fallsplitter: 1053
+
+Escgab Bugard: 1351
+Eschan Corse: 1363
+
+Lesser Colibri: 1720
+Puk: 1744
+Eschan Puk: 1744
+Poroggo: 1811
+
+Eschan Obdella: 1934
+Eschan Wasp: 1936
+
+Peiste: 2015
+Lou Carcolh: 2021
+Pixie: 2030
+Decrepit Gnole: 2033
+
+Eschan Yztarg: 2195
+Lesser Wivre: 2233
+Grauberg Hippogryph: 2241
+Ajattara: 2245
+
+???: 2326
+
+Eschan Snapweed: 2550
+
+Eschan Mosquito: 2919
+
+Shantotto: 3000
+Naji: 3001
+Kupipi: 3002
+Excenmille: 3003
+Ayame: 3004
+NanaaMihgo: 3005
+Curilla: 3006
+Trion: 3009
+MihliAlia: 3013
+Ulmia: 3018
+Prishe: 3017
+
+Gessho: 3022
+Rainemard: 3024
+Maat: 3037
+Semih: 3044
+
+Qultada: 3076
+Adelheid: 3077
+Lion II: 3081
+Nashmeira: 3083
+Kupofried: 3093
