@@ -25,6 +25,7 @@ I've included some model numbers I've tested in the ModelNumbersTested.txt folde
 
 ## ***About Animations and Models***
 You should know that there's no harm in replacing models for your characters or pets, but it *can* look funny if the pet and the model aren't well suited to each other. This is **most evident** on Avatars and their Bloodpacts. Keep that in mind for best results <3
+I've added an 'Animation Patching' tab to help fix this. It's not perfect, but you can choose for certain animations to play instead of ALL broken animations. Experiment to find what works best for you!
 
 ## Tips and Tricks
 * If you know what you want to make your pet look like, use the ModelSniffer while near that creature in-game to get its model number, then use that for your model swap.
