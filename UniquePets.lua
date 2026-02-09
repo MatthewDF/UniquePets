@@ -545,7 +545,7 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 						end
 					end						
 						
-
+						imgui.SameLine()
                         if (imgui.SmallButton('Apply##rm_' .. pname .. '_' .. pet)) then
                             local m = to_int(ui_remote_models[pname][pet][1])
                             if (m ~= nil) then
