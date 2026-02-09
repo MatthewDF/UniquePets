@@ -1,6 +1,6 @@
 addon.name    = 'UniquePets'
 addon.author  = 'Mazu'
-addon.version = '2.5'
+addon.version = '2.5.2'
 
 require('common')
 local breader  = require('bitreader')
@@ -277,6 +277,13 @@ ashita.events.register('packet_in', 'upets_model_packet', function (e)
     local petSid = get_local_pet_server_id()
     if (petSid and entSid == petSid) then
         local model = config.local_player[entityName]
+		
+		-- Wildcard (Any pet by player)
+		if (model == nil) then
+			
+			model = config.local_player["*"]
+		end
+		
 		if (model) then
 			ashita.bits.pack_be(e.data_modified_raw, model, 0x32, 0, 16)		
 			
@@ -300,6 +307,13 @@ ashita.events.register('packet_in', 'upets_model_packet', function (e)
     if (not playerCfg) then return end
 
     local model = playerCfg[entityName]
+
+	-- Wildcard (Any pet by player)
+	if (model == nil) then
+		
+		model = playerCfg["*"]
+	end
+	
 	if (model) then
 		ashita.bits.pack_be(e.data_modified_raw, model, 0x32, 0, 16)
 		patchedPets[entSid] = {
@@ -433,7 +447,8 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 						safe_settings_save()
 					end
 				end
-
+				
+				imgui.SameLine()
                 if (imgui.SmallButton('Apply##lm_' .. pet)) then
                     local m = to_int(ui_local_models[pet][1])
                     if (m ~= nil) then
