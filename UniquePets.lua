@@ -1,6 +1,6 @@
 addon.name    = 'UniquePets'
 addon.author  = 'Mazu'
-addon.version = '2.5.2'
+addon.version = '2.5.3'
 
 require('common')
 local breader  = require('bitreader')
@@ -229,6 +229,36 @@ local function to_int(v)
     return n and math.floor(n) or nil
 end
 
+local function wildcard_to_pattern(wild)
+    -- Escape Lua pattern magic chars except *
+    wild = wild:gsub("([%%%^%$%(%)%.%[%]%+%-%?])", "%%%1")
+    -- Convert * to .*
+    wild = wild:gsub("%*", ".*")
+    -- Anchor match to full string
+    return "^" .. wild .. "$"
+end
+
+local function find_with_wildcards(tbl, entityName)
+    if (not tbl) then return nil end
+
+    -- 1. Exact match first (fast path)
+    if (tbl[entityName] ~= nil) then
+        return tbl[entityName]
+    end
+
+    -- 2. Wildcard matches
+    for k, v in pairs(tbl) do
+        if (type(k) == 'string' and k:find("%*")) then
+            local pattern = wildcard_to_pattern(k)
+            if (entityName:match(pattern)) then
+                return v
+            end
+        end
+    end
+
+    return nil
+end
+
 ------------------------------------------------------------
 -- Commands
 ------------------------------------------------------------
@@ -276,13 +306,8 @@ ashita.events.register('packet_in', 'upets_model_packet', function (e)
     -- Local pet
     local petSid = get_local_pet_server_id()
     if (petSid and entSid == petSid) then
-        local model = config.local_player[entityName]
-		
-		-- Wildcard (Any pet by player)
-		if (model == nil) then
-			
-			model = config.local_player["*"]
-		end
+
+		local model = find_with_wildcards(config.local_player, entityName)
 		
 		if (model) then
 			ashita.bits.pack_be(e.data_modified_raw, model, 0x32, 0, 16)		
@@ -306,13 +331,7 @@ ashita.events.register('packet_in', 'upets_model_packet', function (e)
     local playerCfg = config.players[ownerName]
     if (not playerCfg) then return end
 
-    local model = playerCfg[entityName]
-
-	-- Wildcard (Any pet by player)
-	if (model == nil) then
-		
-		model = playerCfg["*"]
-	end
+	local model = find_with_wildcards(playerCfg, entityName)
 	
 	if (model) then
 		ashita.bits.pack_be(e.data_modified_raw, model, 0x32, 0, 16)
@@ -352,17 +371,20 @@ ashita.events.register('packet_in', 'upets_animation_packet', function (e)
 		matches_target = config.anim_to_patch
 	end
 	
-	-- Advanced per-pet override (Unknown only)
+	-- Advanced per-pet override
 	if (config.advanced_patching == 1 and (cmd_no == 13 or cmd_no == matches_target)) then
 		local override_anim = nil
 
 		if (petInfo.is_local) then
 			override_anim =
-				config.pet_anim_overrides.local_player[petInfo.pet]
+				find_with_wildcards(
+					config.pet_anim_overrides.local_player,
+					petInfo.pet
+				)
 		else
 			local p = config.pet_anim_overrides.players[petInfo.owner]
 			if (p) then
-				override_anim = p[petInfo.pet]
+				override_anim = find_with_wildcards(p, petInfo.pet)
 			end
 		end
 
@@ -382,6 +404,7 @@ ashita.events.register('packet_in', 'upets_animation_packet', function (e)
         --print(('[FixAnimation] %s (%d) -> Attack'):fmt(actor_name, serverId))
     end
 end)
+
 
 ------------------------------------------------------------
 -- UI
@@ -442,8 +465,15 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 					)
 
 					if (imgui.IsItemDeactivatedAfterEdit()) then
-						local v = to_int(ui_anim_override_buffers.local_player[pet][1])
-						config.pet_anim_overrides.local_player[pet] = v or nil
+						local raw = ui_anim_override_buffers.local_player[pet][1]
+						local v = to_int(raw)
+
+						if (raw == '' or v == nil) then
+							config.pet_anim_overrides.local_player[pet] = nil
+						else
+							config.pet_anim_overrides.local_player[pet] = v
+						end
+
 						safe_settings_save()
 					end
 				end
@@ -536,16 +566,23 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 						)
 
 						if (imgui.IsItemDeactivatedAfterEdit()) then
-							local v = to_int(ui_anim_override_buffers.players[pname][pet][1])
+							local raw = ui_anim_override_buffers.players[pname][pet][1]
+							local v = to_int(raw)
+
 							config.pet_anim_overrides.players[pname] =
 								config.pet_anim_overrides.players[pname] or T{}
 
-							config.pet_anim_overrides.players[pname][pet] = v or nil
+							if (raw == '' or v == nil) then
+								config.pet_anim_overrides.players[pname][pet] = nil
+							else
+								config.pet_anim_overrides.players[pname][pet] = v
+							end
+
 							safe_settings_save()
 						end
 					end						
 						
-						imgui.SameLine()
+
                         if (imgui.SmallButton('Apply##rm_' .. pname .. '_' .. pet)) then
                             local m = to_int(ui_remote_models[pname][pet][1])
                             if (m ~= nil) then
