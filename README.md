@@ -28,6 +28,9 @@ Once you add it, it'll show up in the list above. You can change the model numbe
 
 Other players can have unique pets, too. You may add these manually for each player, or you can import their pets. You can also export your pets for other's to use, too - and they'll see them in-game!
 
+<img width="632" height="484" alt="image" src="https://github.com/user-attachments/assets/21672edc-641a-4701-95be-5c10b1d3e76b" />
+When you Export anything, it will put the files into your UniquePets folder. When you import, it'll take from that same location.
+
 <img width="673" height="782" alt="image" src="https://github.com/user-attachments/assets/92e3b33f-f6d9-4367-9e2b-964919a812e3" />
 <img width="761" height="121" alt="image" src="https://github.com/user-attachments/assets/64666985-41a2-4624-ab84-0d15114e1b60" />
 Pet and Player names are case-sensitive!
