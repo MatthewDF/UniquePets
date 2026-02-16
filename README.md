@@ -29,18 +29,23 @@ Once you add it, it'll show up in the list above. You can change the model numbe
 Other players can have unique pets, too. You may add these manually for each player, or you can import their pets. You can also export your pets for other's to use, too - and they'll see them in-game!
 
 <img width="632" height="484" alt="image" src="https://github.com/user-attachments/assets/21672edc-641a-4701-95be-5c10b1d3e76b" />
+
 When you Export anything, it will put the files into your UniquePets folder. When you import, it'll take from that same location.
 
-<img width="673" height="782" alt="image" src="https://github.com/user-attachments/assets/92e3b33f-f6d9-4367-9e2b-964919a812e3" />
-<img width="761" height="121" alt="image" src="https://github.com/user-attachments/assets/64666985-41a2-4624-ab84-0d15114e1b60" />
-Pet and Player names are case-sensitive!
+Remember: ***Pet and Player names are case-sensitive!***
+
 
 ## Finding Model Numbers
 
 I've included some model numbers I've tested in the ModelNumbersTested.txt folder that you can use, but you can also use the ModelSniffer.Lua addon to locate more. Warning: It's very verbose.
 
 ## ***About Animations and Models***
+
 You should know that there's no harm in replacing models for your characters or pets, but it *can* look funny if the pet and the model aren't well suited to each other. This is **most evident** on Avatars and their Bloodpacts. Keep that in mind for best results <3
+
+<img width="673" height="782" alt="image" src="https://github.com/user-attachments/assets/92e3b33f-f6d9-4367-9e2b-964919a812e3" />
+<img width="761" height="121" alt="image" src="https://github.com/user-attachments/assets/64666985-41a2-4624-ab84-0d15114e1b60" />
+
 I've added an 'Animation Patching' tab to help fix this. It's not perfect, but you can choose for certain animations to play instead of ALL broken animations. Experiment to find what works best for you!
 
 ## Tips and Tricks
