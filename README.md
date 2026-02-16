@@ -6,7 +6,7 @@
 This addon for Ashita allows you to set a model for your pet and for others', while keeping your change unique. That means you can replace your Wyvern, for example, but every other Wyvern will remain unchanged.
 
 <img width="588" height="474" alt="image" src="https://github.com/user-attachments/assets/4e92cab4-575d-429c-8450-3a14a152db08" />
-<img width="382" height="273" alt="Screenshot 2026-02-04 204001" src="https://github.com/user-attachments/assets/b0306640-1b1f-403e-b7ee-929450d81644" />
+<img width="573" height="410" alt="Screenshot 2026-02-04 204001" src="https://github.com/user-attachments/assets/b0306640-1b1f-403e-b7ee-929450d81644" />
 
 <img width="562" height="425" alt="image" src="https://github.com/user-attachments/assets/ca5bed25-eb44-4e0b-b5a2-8e44fe22d823" />
 
