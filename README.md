@@ -48,15 +48,17 @@ You should know that there's no harm in replacing models for your characters or 
 
 To help with this, I've added 'Animation Patching'.
 
+_Animation ID_ - When UniquePets encounters what it thinks is a 'bad animation' (basically an Avatar BP), it will replace the animation using this ID (1-15).
+
+_Additional Action to Replace_ - You can replace one _other_ animations for your pet. So if your Anim. ID is 4 (magic casting), and you select an ID of 1 (Basic Attack) in this field, then **every attack your pet makes will have them appear to cast a spell instead.**
+
+_Advanced Patching_ - Want Lullaby Melodia to cast spells, but Prishe to use Weapon Skills? Turn this option on, and each pet can have its own *Animation ID* it will use instead.
+
 <img width="673" height="782" alt="image" src="https://github.com/user-attachments/assets/92e3b33f-f6d9-4367-9e2b-964919a812e3" />
 <img width="761" height="121" alt="image" src="https://github.com/user-attachments/assets/64666985-41a2-4624-ab84-0d15114e1b60" />
 
 
-
-## Tips and Tricks
-* If you know what you want to make your pet look like, use the ModelSniffer while near that creature in-game to get its model number, then use that for your model swap.
-* With the addon loaded, use /addon reload UniquePets to quickly refresh it once you make a change in your Settings.Lua - Otherwise it won't show!
-
 ## Current Known Issues
 * Sometimes when your pet is first summoned/called, it will briefly revert to its base model. This is because the game doesn't yet know you're their owner, and it'll update as soon as they move.
 * Sometimes when your pet is released/dies, it will revert to its base model. This is due to the game forgetting you're the owner of the pet at that moment, and so the model is reverted.
+* `"PetName used ."` - This little chat message can pop up when you do certain kinds of animation patching. It's cosmetic, harmless, and I can't do a thing about it :D
