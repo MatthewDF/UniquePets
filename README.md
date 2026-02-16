@@ -18,15 +18,14 @@ Place UniquePets.lua in a folder named 'UniquePets' inside your HorizonXI\Game\a
 In-game, be sure to type `/addon load UniquePets` to activate it for the first time, if needed.
 
 ## How to Use
-
-* Load the addon and in-game type `/uniquepets` or `/upets` to bring up the window.
+Load the addon and in-game type `/uniquepets` or `/upets` to bring up the window.
 <img width="588" height="474" alt="image" src="https://github.com/user-attachments/assets/4e92cab4-575d-429c-8450-3a14a152db08" />
-* Add a pet name and a model number of your choice (there's a .txt file with some I've found.)
+Add a pet name and a model number of your choice (there's a .txt file with some I've found.)
 
 <img width="562" height="425" alt="image" src="https://github.com/user-attachments/assets/ca5bed25-eb44-4e0b-b5a2-8e44fe22d823" /> 
 <img width="673" height="782" alt="image" src="https://github.com/user-attachments/assets/92e3b33f-f6d9-4367-9e2b-964919a812e3" />
 /<img width="761" height="121" alt="image" src="https://github.com/user-attachments/assets/64666985-41a2-4624-ab84-0d15114e1b60" />
-* Pet and Player names are case-sensitive!
+Pet and Player names are case-sensitive!
 
 ## Finding Model Numbers
 
