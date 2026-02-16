@@ -1,12 +1,19 @@
 
 # Unique Pets by Mazu
 
+<img width="1064" height="946" alt="Screenshot 2026-02-16 150136" src="https://github.com/user-attachments/assets/444877a0-d581-4627-8a7d-7a4bda5c0665" />
+
 This addon for Ashita allows you to set a model for your pet and for others', while keeping your change unique. That means you can replace your Wyvern, for example, but every other Wyvern will remain unchanged.
 
-<img width="945" height="725" alt="image" src="https://github.com/user-attachments/assets/90bab1f6-3988-4737-ac7f-deaed05f243f" />
-<img width="655" height="585" alt="image" src="https://github.com/user-attachments/assets/c43d9087-4af2-45f2-915b-02654277a149" />
-<img width="520" height="478" alt="image" src="https://github.com/user-attachments/assets/ab7e739a-cd08-4dac-89d7-def76c3e2bc9" />
-<img width="522" height="479" alt="image" src="https://github.com/user-attachments/assets/11aa6e33-015d-44f8-aa2c-480bcdcb94e0" />
+<img width="588" height="474" alt="image" src="https://github.com/user-attachments/assets/4e92cab4-575d-429c-8450-3a14a152db08" />
+
+<img width="562" height="425" alt="image" src="https://github.com/user-attachments/assets/ca5bed25-eb44-4e0b-b5a2-8e44fe22d823" />
+
+<img width="1389" height="899" alt="Screenshot 2026-02-16 150941" src="https://github.com/user-attachments/assets/f075534d-c1b4-42cb-8505-b09ac4465999" />
+
+<img width="673" height="782" alt="image" src="https://github.com/user-attachments/assets/92e3b33f-f6d9-4367-9e2b-964919a812e3" />
+
+/<img width="761" height="121" alt="image" src="https://github.com/user-attachments/assets/64666985-41a2-4624-ab84-0d15114e1b60" />
 
 
 ## Installation
