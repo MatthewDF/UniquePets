@@ -41,7 +41,9 @@ I've included some model numbers I've tested in the ModelNumbersTested.txt folde
 
 # About Animations and Models
 
+<p align="center">
 ![UniquePets](https://github.com/user-attachments/assets/80b2f48e-8475-4ab7-b69d-8c0efb792228)
+</p>
 
 You should know that there's no harm in replacing models for your characters or pets, but it *can* look funny if the pet and the model aren't well suited to each other. This is **most evident** on Avatars and their Bloodpacts. 
 
