@@ -1,6 +1,6 @@
 addon.name    = 'UniquePets'
 addon.author  = 'Mazu'
-addon.version = '2.5.3'
+addon.version = '2.6.1'
 
 require('common')
 local breader  = require('bitreader')
@@ -27,7 +27,12 @@ local default_settings = T{
     pet_anim_overrides = {
         local_player = T{},
         players = T{},
-    }
+    },
+	
+	pet_spell_overrides = {
+		local_player = T{},
+		players = T{},
+	}	
 }
 
 local config = settings.load(default_settings)
@@ -150,28 +155,29 @@ local function validate_single_player_import(data)
         return nil
     end
 
-    -- Normalize players table
     local players = T(data.players)
     local pname = next(players)
-    if (pname == nil or next(players, pname) ~= nil) then return nil end
-
-    local pets_raw = players[pname]
-    if (type(pets_raw) ~= 'table') then
+    if (pname == nil or next(players, pname) ~= nil) then
         return nil
     end
 
-    -- Normalize pets table
-    local pets = T(pets_raw)
-    local petKeys = pets:keys()
-
-    for i = 1, #petKeys do
-        if (type(pets[petKeys[i]]) ~= 'number') then
-            return nil
-        end
+    local entry = players[pname]
+    if (type(entry) ~= 'table') then
+        return nil
     end
 
-    return pname, pets
+    -- Backwards compatibility: old format (pet = model)
+    if (next(entry) and type(entry[next(entry)]) == 'number') then
+        return pname, T(entry), T{}, T{}
+    end
+
+    -- New extended format
+    return pname,
+           T(entry.models or {}),
+           T(entry.anim_overrides or {}),
+           T(entry.spell_overrides or {})
 end
+
 
 
 ------------------------------------------------------------
@@ -316,7 +322,7 @@ ashita.events.register('packet_in', 'upets_model_packet', function (e)
 				pet      = entityName,
 				owner    = local_player_name,
 				is_local = true,
-			}
+			}			
 		end
         return
     end
@@ -349,14 +355,31 @@ end)
 ashita.events.register('packet_in', 'upets_animation_packet', function (e)
     if (e.id ~= 0x0028 or config.is_patching == 0) then return end
 
-    local reader = breader:new()
-    reader:set_data(e.data)
-    reader:set_pos(5)
+	-- Initialize Packet Reading 
+	-- We need to consume/read the packet and log data as we go
+	-- Credit: Thorny
+		local subkind
+		local bitData
+		local bitOffset
+		local actionPacket = T{}
 
-    local serverId = reader:read(32)
-    reader:read(6)  -- trg_sum
-    reader:read(4)  -- res_sum
-    local cmd_no = reader:read(4)
+		local function UnpackBits(length)
+			local value = ashita.bits.unpack_be(bitData, 0, bitOffset, length)
+			bitOffset = bitOffset + length
+			return value
+		end
+
+		bitData = e.data_raw
+		bitOffset = 40
+
+		local serverId = UnpackBits(32)
+		local targetCount = UnpackBits(6)  -- trg_sum
+		UnpackBits(4)  -- res_sum
+		local cmd_no = UnpackBits(4)
+		local cmd_arg = UnpackBits(32)
+		local cmd_argOffset = bitOffset-32
+		local recast = UnpackBits(32);
+	-- END Initialize Packet Reading
 
     -- Only pets whose models were patched
     if (not patchedPets[serverId]) then return end
@@ -390,6 +413,84 @@ ashita.events.register('packet_in', 'upets_animation_packet', function (e)
 
 		if (override_anim and override_anim ~= 0) then
 			
+			-- If we're overriding for attacks, provide the cmd_arg info needed first
+			if (override_anim == 1) then
+				ashita.bits.pack_be(e.data_modified_raw, 812348513, 0, cmd_argOffset, 32)
+			end
+			
+			-- Spell animation override
+			if (override_anim == 4) then
+				
+				-- Collect spell id if provided
+				local spell_id_inject = 1 -- default
+				
+				-- Spell ID Injection for spell casting animation
+				local spell_overrides = config.pet_spell_overrides
+				if (spell_overrides) then
+					if (petInfo.is_local) then
+						local t = spell_overrides.local_player
+						if (t and t[petInfo.pet]) then
+							spell_id_inject = t[petInfo.pet]
+						end
+					else
+						local p = spell_overrides.players
+						if (p and p[petInfo.owner]
+							and p[petInfo.owner][petInfo.pet]) then
+							spell_id_inject = p[petInfo.owner][petInfo.pet]
+						end
+					end
+				end				
+				
+				-- Read through packet further to do animation injection
+				actionPacket.Targets = T{};
+				for i = 1,targetCount do
+					local target = T{};
+					target.Id = UnpackBits(32);
+					local actionCount = UnpackBits(4);
+					target.Actions = T{};
+					for j = 1,actionCount do
+						local action = {};
+						action.Reaction = UnpackBits(5);
+						action.Animation = UnpackBits(12);
+						
+						-- "Animation" here is also known as the sub_kind in this packet
+						subkind = bitOffset-12
+						
+						-- We inject the spell ID into cmd_arg and sub_kind
+						ashita.bits.pack_be(e.data_modified_raw, spell_id_inject, 0, cmd_argOffset, 32)
+						
+						ashita.bits.pack_be(e.data_modified_raw, spell_id_inject, 0, subkind, 12);
+						
+						action.SpecialEffect = UnpackBits(7);
+						action.Knockback = UnpackBits(3);
+						action.Param = UnpackBits(17);
+						action.Message = UnpackBits(10);
+						action.Flags = UnpackBits(31);
+						
+						local hasAdditionalEffect = (UnpackBits(1) == 1);
+						if hasAdditionalEffect then
+							local additionalEffect = {};
+							additionalEffect.Damage = UnpackBits(10);
+							additionalEffect.Param = UnpackBits(17);
+							additionalEffect.Message = UnpackBits(10);
+							action.AdditionalEffect = additionalEffect;
+						end
+
+						local hasSpikesEffect = (UnpackBits(1) == 1);
+						if hasSpikesEffect then
+							local spikesEffect = {};
+							spikesEffect.Damage = UnpackBits(10);
+							spikesEffect.Param = UnpackBits(14);
+							spikesEffect.Message = UnpackBits(10);
+							action.SpikesEffect = spikesEffect;
+						end
+
+						target.Actions:append(action);
+					end
+					actionPacket.Targets:append(target);
+				end					
+			end			
+			
 			ashita.bits.pack_be(e.data_modified_raw, override_anim, 82, 4)
 			return
 		end
@@ -398,10 +499,15 @@ ashita.events.register('packet_in', 'upets_animation_packet', function (e)
 	if (string.find(anim_name, 'Unknown') or cmd_no == matches_target) then
 		
 		-- Patch animation
+
+		-- If we're overriding for attacks, provide the cmd_arg info needed first
+		if (override_anim == 1) then
+			ashita.bits.pack_be(e.data_modified_raw, 812348513, 0, bitOffset-32, 32)
+		end		
+		
         ashita.bits.pack_be(e.data_modified_raw, config.anim_value, 82, 4)
 
         local actor_name = get_actor_name(serverId)
-        --print(('[FixAnimation] %s (%d) -> Attack'):fmt(actor_name, serverId))
     end
 end)
 
@@ -443,18 +549,39 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
             for pet, model in pairs(config.local_player) do
 
                 ui_local_models[pet] = ui_local_models[pet] or { tostring(model) }
-
+				
+                if (imgui.SmallButton('X##local_' .. pet)) then
+                    config.local_player[pet] = nil
+                    ui_local_models[pet] = nil
+                    safe_settings_save()
+                    break
+                end
+				
+                imgui.SameLine()
+				
                 imgui.Text(pet)
                 imgui.SameLine(200)
                 imgui.SetNextItemWidth(80)
                 imgui.InputText('##lm_' .. pet, ui_local_models[pet], 16)
-                imgui.SameLine()
+				imgui.SameLine()
+                if (imgui.SmallButton('Apply Model##lm_' .. pet)) then
+                    local m = to_int(ui_local_models[pet][1])
+                    if (m ~= nil) then
+                        config.local_player[pet] = m
+                        safe_settings_save()
+                    end
+                end
+
 
 				if (config.advanced_patching == 1) then
 					ui_anim_override_buffers.local_player[pet] =
 						ui_anim_override_buffers.local_player[pet]
 						or { tostring(config.pet_anim_overrides.local_player[pet] or '') }
 
+					imgui.SameLine()
+					imgui.Text('|')
+					imgui.SameLine()
+					imgui.Text('Anim. ID:')
 					imgui.SameLine()
 					imgui.SetNextItemWidth(60)
 					imgui.InputText(
@@ -476,24 +603,54 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 
 						safe_settings_save()
 					end
-				end
-				
-				imgui.SameLine()
-                if (imgui.SmallButton('Apply##lm_' .. pet)) then
-                    local m = to_int(ui_local_models[pet][1])
-                    if (m ~= nil) then
-                        config.local_player[pet] = m
-                        safe_settings_save()
-                    end
-                end
 
-                imgui.SameLine()
-                if (imgui.SmallButton('X##local_' .. pet)) then
-                    config.local_player[pet] = nil
-                    ui_local_models[pet] = nil
-                    safe_settings_save()
-                    break
-                end
+					-- NEW: Spell ID field when override == 4
+					local current_override =
+						to_int(ui_anim_override_buffers.local_player[pet][1])
+
+					if (current_override == 4) then
+						config.pet_spell_overrides = config.pet_spell_overrides or T{}
+						config.pet_spell_overrides.local_player =
+							config.pet_spell_overrides.local_player or T{}
+
+						ui_spell_override_buffers = ui_spell_override_buffers or T{}
+						ui_spell_override_buffers.local_player =
+							ui_spell_override_buffers.local_player or T{}
+
+						ui_spell_override_buffers.local_player[pet] =
+							ui_spell_override_buffers.local_player[pet]
+							or { tostring(
+								config.pet_spell_overrides.local_player[pet] or ''
+							)}
+						imgui.SameLine()
+						imgui.Text('|')
+						imgui.SameLine()
+						imgui.Text('Spell ID:')
+						imgui.SameLine()
+						imgui.SetNextItemWidth(70)
+						imgui.InputText(
+							'##us_' .. pet,
+							ui_spell_override_buffers.local_player[pet],
+							8,
+							ImGuiInputTextFlags_CharsDecimal
+						)
+
+						if (imgui.IsItemDeactivatedAfterEdit()) then
+							local v =
+								to_int(ui_spell_override_buffers.local_player[pet][1])
+
+							if (v == nil) then
+								config.pet_spell_overrides.local_player[pet] = nil
+							else
+								config.pet_spell_overrides.local_player[pet] = v
+							end
+
+							safe_settings_save()
+						end
+					end					
+					
+				end --END: Advanced Patching
+				
             end
 
             imgui.Separator()
@@ -534,6 +691,14 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
                         ui_remote_models[pname][pet] =
                             ui_remote_models[pname][pet] or { tostring(model) }
 
+                        if (imgui.SmallButton('X##' .. pname .. '_' .. pet)) then
+                            config.players[pname][pet] = nil
+                            ui_remote_models[pname][pet] = nil
+                            safe_settings_save()
+                            break
+                        end
+                        imgui.SameLine()
+						
                         imgui.Text(pet)
                         imgui.SameLine(200)
                         imgui.SetNextItemWidth(80)
@@ -542,6 +707,15 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
                             ui_remote_models[pname][pet],
                             16
                         )
+
+						imgui.SameLine()
+                        if (imgui.SmallButton('Apply Model##rm_' .. pname .. '_' .. pet)) then
+                            local m = to_int(ui_remote_models[pname][pet][1])
+                            if (m ~= nil) then
+                                config.players[pname][pet] = m
+                                safe_settings_save()
+                            end
+                        end
                         
 					-- Advanced Patching	
 					if (config.advanced_patching == 1) then
@@ -556,6 +730,10 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 								or ''
 							)}
 
+						imgui.SameLine()
+						imgui.Text('|')
+						imgui.SameLine()
+						imgui.Text('Anim. ID:')
 						imgui.SameLine()
 						imgui.SetNextItemWidth(60)
 						imgui.InputText(
@@ -580,24 +758,61 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 
 							safe_settings_save()
 						end
-					end						
+
+						-- NEW: Spell ID field when override == 4
+						local current_override =
+							to_int(ui_anim_override_buffers.players[pname][pet][1])
+
+						if (current_override == 4) then
+							config.pet_spell_overrides = config.pet_spell_overrides or T{}
+							config.pet_spell_overrides.players =
+								config.pet_spell_overrides.players or T{}
+
+							config.pet_spell_overrides.players[pname] =
+								config.pet_spell_overrides.players[pname] or T{}
+
+							ui_spell_override_buffers = ui_spell_override_buffers or T{}
+							ui_spell_override_buffers.players =
+								ui_spell_override_buffers.players or T{}
+
+							ui_spell_override_buffers.players[pname] =
+								ui_spell_override_buffers.players[pname] or T{}
+
+							ui_spell_override_buffers.players[pname][pet] =
+								ui_spell_override_buffers.players[pname][pet]
+								or { tostring(
+									config.pet_spell_overrides.players[pname][pet] or ''
+								)}
+
+							imgui.SameLine()
+							imgui.Text('|')
+							imgui.SameLine()
+							imgui.Text('Spell ID:')
+							imgui.SameLine()
+							imgui.SetNextItemWidth(70)
+							imgui.InputText(
+								'##us_' .. pname .. '_' .. pet,
+								ui_spell_override_buffers.players[pname][pet],
+								8,
+								ImGuiInputTextFlags_CharsDecimal
+							)
+
+							if (imgui.IsItemDeactivatedAfterEdit()) then
+								local v =
+									to_int(ui_spell_override_buffers.players[pname][pet][1])
+
+								if (v == nil) then
+									config.pet_spell_overrides.players[pname][pet] = nil
+								else
+									config.pet_spell_overrides.players[pname][pet] = v
+								end
+
+								safe_settings_save()
+							end
+						end
 						
-
-                        if (imgui.SmallButton('Apply##rm_' .. pname .. '_' .. pet)) then
-                            local m = to_int(ui_remote_models[pname][pet][1])
-                            if (m ~= nil) then
-                                config.players[pname][pet] = m
-                                safe_settings_save()
-                            end
-                        end
-
-                        imgui.SameLine()
-                        if (imgui.SmallButton('X##' .. pname .. '_' .. pet)) then
-                            config.players[pname][pet] = nil
-                            ui_remote_models[pname][pet] = nil
-                            safe_settings_save()
-                            break
-                        end
+					end	--END: Advanced Patching
+						
                     end 
 
                     imgui.Separator()
@@ -647,23 +862,49 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 
             if (imgui.Button('Export Your Pets')) then
                 if (local_player_name) then
-                    write_export(local_player_name .. '_Export.lua', T{
-                        players = T{
-                            [local_player_name] = config.local_player,
-                        }
-                    })
+					write_export(local_player_name .. '_Export.lua', T{
+						players = T{
+							[local_player_name] = T{
+								models = config.local_player,
+								anim_overrides = config.pet_anim_overrides.local_player,
+								spell_overrides = config.pet_spell_overrides
+													and config.pet_spell_overrides.local_player
+													or T{},
+							}
+						},
+						animation_settings = T{
+							is_patching = config.is_patching,
+							anim_value = config.anim_value,
+							anim_to_patch = config.anim_to_patch,
+							advanced_patching = config.advanced_patching,
+						}
+					})
                 end
             end
 
             if (imgui.Button('Import Your Pets')) then
                 local data = load_import(local_player_name .. '_Export.lua')
                 if (data) then
-                    local _, pets = validate_single_player_import(data)
-                    if (pets) then
-                        config.local_player = pets
-                        ui_local_models = {}
-                        safe_settings_save()
-                    end
+					local pname, models, anims, spells = validate_single_player_import(data)
+					if (pname) then
+						config.local_player = models or T{}
+						config.pet_anim_overrides.local_player = anims or T{}
+
+						config.pet_spell_overrides = config.pet_spell_overrides or T{}
+						config.pet_spell_overrides.local_player = spells or T{}
+
+						-- Optional: import animation globals if present
+						if (type(data.animation_settings) == 'table') then
+							config.is_patching = data.animation_settings.is_patching or config.is_patching
+							config.anim_value = data.animation_settings.anim_value or config.anim_value
+							config.anim_to_patch = data.animation_settings.anim_to_patch or config.anim_to_patch
+							config.advanced_patching = data.animation_settings.advanced_patching or config.advanced_patching
+						end
+
+						ui_local_models = {}
+						safe_settings_save()
+					end
+
                 end
             end
 
@@ -675,19 +916,36 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
             imgui.Text('and overwrite your pets in the Other Players tab.')
             imgui.Separator()
             if (imgui.Button('Export All Other Players')) then
-                write_export('OtherPets_Export.lua', T{
-                    players = config.players
-                })
+				write_export('OtherPets_Export.lua', T{
+					players = T{
+						models = config.players,
+						anim_overrides = config.pet_anim_overrides.players,
+						spell_overrides = config.pet_spell_overrides
+											and config.pet_spell_overrides.players
+											or T{},
+					}
+				})
             end
 
             imgui.Separator()
             if (imgui.Button('Import and Overwrite Other Pets')) then
                 local data = load_import('OtherPets_Export.lua')
-                if (data and type(data.players) == 'table') then
-                    config.players = data.players
-                    ui_remote_models = {}
-                    safe_settings_save()
-                end
+				if (data and type(data.players) == 'table') then
+
+					-- Backwards compatibility
+					if (data.players.models) then
+						config.players = T(data.players.models)
+						config.pet_anim_overrides.players = T(data.players.anim_overrides or {})
+						config.pet_spell_overrides = config.pet_spell_overrides or T{}
+						config.pet_spell_overrides.players = T(data.players.spell_overrides or {})
+					else
+						config.players = T(data.players)
+					end
+
+					ui_remote_models = {}
+					safe_settings_save()
+				end
+
             end
 
             imgui.Separator()
@@ -700,12 +958,22 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
             if (imgui.Button('Import Single Player')) then
                 local data = load_import(ui_player[1] .. '_Export.lua')
                 if (data) then
-                    local pname, pets = validate_single_player_import(data)
-                    if (pname and pets) then
-                        config.players[pname] = pets
-                        ui_remote_models[pname] = {}
-                        safe_settings_save()
-                    end
+					local pname, models, anims, spells = validate_single_player_import(data)
+					if (pname) then
+						config.players[pname] = models or T{}
+
+						config.pet_anim_overrides.players[pname] =
+							anims or T{}
+
+						config.pet_spell_overrides = config.pet_spell_overrides or T{}
+						config.pet_spell_overrides.players =
+							config.pet_spell_overrides.players or T{}
+						config.pet_spell_overrides.players[pname] =
+							spells or T{}
+
+						ui_remote_models[pname] = {}
+						safe_settings_save()
+					end
                 end
             end
             
