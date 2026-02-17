@@ -333,8 +333,8 @@ ashita.events.register('packet_in', 'upets_model_packet', function (e)
 
     local ownerName = get_entity_name(ownerAct)
     if (not ownerName) then return end
-
-    local playerCfg = config.players[ownerName]
+	
+    local playerCfg = find_with_wildcards(config.players, ownerName)
     if (not playerCfg) then return end
 
 	local model = find_with_wildcards(playerCfg, entityName)
