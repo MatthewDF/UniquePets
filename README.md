@@ -34,14 +34,14 @@ When you Export anything, it will put the files into your UniquePets folder. Whe
 
 Remember: ***Pet and Player names are case-sensitive!***
 
+## Wildcards
+When entering player or pet names, you can use '*' to wildcard. Really nice for BST charming!
 
 ## Finding Model Numbers
 
 I've included some model numbers I've tested in the ModelNumbersTested.txt folder that you can use, but you can also use the ModelSniffer.Lua addon to locate more. Warning: It's very verbose.
 
 # About Animations and Models
-
-
 ![UniquePets](https://github.com/user-attachments/assets/80b2f48e-8475-4ab7-b69d-8c0efb792228)
 
 You should know that there's no harm in replacing models for your characters or pets, but it *can* look funny if the pet and the model aren't well suited to each other. This is **most evident** on Avatars and their Bloodpacts. 
