@@ -24,15 +24,15 @@ local default_settings = T{
 
     -- Advanced Animation Patching
     advanced_patching = 0,
-    pet_anim_overrides = {
+    pet_overrides = {
         local_player = T{},
         players = T{},
     },
 	
-	pet_spell_overrides = {
-		local_player = T{},
-		players = T{},
-	}	
+    -- Model Sync (per-pet idle/heal model swaps)
+    model_sync_enabled = false,
+    pet_model_sync = T{},
+
 }
 
 local config = settings.load(default_settings)
@@ -40,15 +40,24 @@ local config = settings.load(default_settings)
 -- UI Buffers (Initialized empty, synced in settings_update)
 local ui_buffers = {
     anim_val_input      = { tostring(config.anim_value or 0) },
-    anim_to_patch_input = { tostring(config.anim_to_patch or 0) }
+    anim_to_patch_input = { tostring(config.anim_to_patch or 0) },
 }
+
+-- Per-pet model sync UI buffers: { petName = { idle = {'60'}, heal = {'2203'} } }
+local ui_model_sync_bufs = {}
+
+-- Forward declaration (populated later)
+local model_sync
 
 local function settings_update(s)
     if (s ~= nil and type(s) == 'table') then
         config = s
-        -- Keep UI buffers in sync with the loaded file
         ui_buffers.anim_val_input[1] = tostring(config.anim_value or 0)
         ui_buffers.anim_to_patch_input[1] = tostring(config.anim_to_patch or 0)
+        ui_model_sync_bufs = {}
+        if (model_sync) then
+            model_sync.enabled = config.model_sync_enabled or false
+        end
     end
 end
 
@@ -70,6 +79,9 @@ local patchedPets = {
     -- [serverId] = { pet=string, owner=string, is_local=bool }
 }
 
+-- Debug mode
+local debug_mode = false
+
 ------------------------------------------------------------
 -- Misc
 ------------------------------------------------------------
@@ -83,7 +95,7 @@ local bool_labels = { 'False', 'True' }
 local ui_local_models  = {}
 local ui_remote_models = {}
 
-local ui_anim_override_buffers = {
+local ui_override_add = {
     local_player = {},
     players = {},
 }
@@ -166,16 +178,14 @@ local function validate_single_player_import(data)
         return nil
     end
 
-    -- Backwards compatibility: old format (pet = model)
+    -- Old format (pet = model number directly)
     if (next(entry) and type(entry[next(entry)]) == 'number') then
-        return pname, T(entry), T{}, T{}
+        return pname, T(entry), T{}
     end
 
-    -- New extended format
     return pname,
            T(entry.models or {}),
-           T(entry.anim_overrides or {}),
-           T(entry.spell_overrides or {})
+           T(entry.overrides or {})
 end
 
 
@@ -224,6 +234,7 @@ local function get_action_name(cmd_no)
         [10] = 'JA (S)',
         [11] = 'MonSkill (F)',
         [12] = 'R.Attack (S)',
+        [13] = 'PetAbility',
         [14] = 'Dancer',
         [15] = 'RuneFencer'
     }
@@ -265,6 +276,90 @@ local function find_with_wildcards(tbl, entityName)
     return nil
 end
 
+local function get_pet_sync(petName)
+    if (not config.pet_model_sync) then return nil end
+    return find_with_wildcards(config.pet_model_sync, petName)
+end
+
+local function get_pet_rules(petInfo)
+    local overrides = config.pet_overrides
+    if (not overrides) then return nil end
+
+    local rules = nil
+    if (petInfo.is_local) then
+        rules = find_with_wildcards(overrides.local_player, petInfo.pet)
+    else
+        local p = overrides.players and overrides.players[petInfo.owner]
+        if (p) then
+            rules = find_with_wildcards(p, petInfo.pet)
+        end
+    end
+    return rules
+end
+
+local function find_matching_rule(rules, cmd_arg, cmd_no)
+    if (not rules) then return nil end
+    for _, rule in ipairs(rules) do
+        if (rule.match == 'action') then
+            if (rule.from == cmd_no) then return rule end
+        else
+            if (rule.from == cmd_arg) then return rule end
+        end
+    end
+    return nil
+end
+
+------------------------------------------------------------
+-- Heal Sync State
+------------------------------------------------------------
+
+model_sync = {
+    enabled = config.model_sync_enabled or false,
+    forced_state = nil,
+}
+
+------------------------------------------------------------
+-- Pet Entity Helpers
+------------------------------------------------------------
+
+local function get_pet_entity()
+    local p = GetPlayerEntity()
+    if (p == nil or p.PetTargetIndex == nil or p.PetTargetIndex == 0) then
+        return nil, nil
+    end
+    local pet = GetEntity(p.PetTargetIndex)
+    if (not pet) then return nil, nil end
+    return pet, p.PetTargetIndex
+end
+
+-- Cache the last raw 0x000E packet for each patched pet (keyed by serverId)
+local lastPetPacket = {}
+
+local function replay_pet_packet_with_model(serverId, modelId)
+    local cached = lastPetPacket[serverId]
+    if (not cached) then
+        print('[UniquePets] No cached packet for serverId ' .. tostring(serverId))
+        return false
+    end
+
+    local pkt = {}
+    for i = 1, #cached do
+        pkt[i] = cached[i]
+    end
+
+    -- Force the MODEL flag (0x10) in SendFlg at offset 0x0A so the client processes model data
+    local sendFlg = pkt[0x0A + 1] or 0
+    pkt[0x0A + 1] = bit.bor(sendFlg, 0x10)
+
+    pkt[0x32 + 1] = bit.band(bit.rshift(modelId, 8), 0xFF)
+    pkt[0x33 + 1] = bit.band(modelId, 0xFF)
+
+    print(string.format('[UniquePets] Replaying cached packet (%d bytes, sendFlg 0x%02X->0x%02X) with model %d',
+        #pkt, sendFlg, pkt[0x0A + 1], modelId))
+    AshitaCore:GetPacketManager():AddIncomingPacket(0x0E, pkt)
+    return true
+end
+
 ------------------------------------------------------------
 -- Commands
 ------------------------------------------------------------
@@ -275,8 +370,213 @@ ashita.events.register('command', 'upets_command', function (e)
     local a = e.command:args()
     if (#a == 0) then return end
 
+    -- Intercept /heal to swap pet model BEFORE healing starts
+    -- (ModelUpdateFlags doesn't work during healing status, so we must swap while standing)
+    if (a[1] == '/heal' and model_sync.enabled) then
+        local me = GetPlayerEntity()
+        if (me) then
+            local myStatus = me.Status
+            local pet, petIdx = get_pet_entity()
+            if (pet and petIdx and patchedPets[pet.ServerId]) then
+                local petSync = get_pet_sync(pet.Name)
+                local healModel = petSync and petSync.heal_model
+                if (healModel and healModel > 0 and myStatus ~= 33
+                    and model_sync.forced_state ~= 'heal') then
+                    pet.Look.Hair = healModel
+                    pet.ModelUpdateFlags = 0x10
+                    model_sync.forced_state = 'heal'
+                    model_sync.swap_time = os.clock()
+                end
+            end
+        end
+    end
+
     if (a[1] == '/uniquepets' or a[1] == '/upets') then
         e.blocked = true
+
+        if (#a == 1) then
+            show_ui = not show_ui
+            return
+        end
+
+        local sub = a[2]:lower()
+
+        if (sub == 'petdebug') then
+            local pet, idx = get_pet_entity()
+            if (not pet) then
+                print('[UniquePets] No pet found.')
+                return
+            end
+            local entMgr = AshitaCore:GetMemoryManager():GetEntity()
+            local flags = entMgr:GetSpawnFlags(idx)
+            local status = entMgr:GetStatus(idx)
+            local statusServer = entMgr:GetStatusServer(idx)
+            print(string.format('[UniquePets] Pet: %s  Index: %d  ServerId: %d',
+                pet.Name or '?', idx, pet.ServerId or 0))
+            print(string.format('[UniquePets]   SpawnFlags: 0x%04X  Status: %d  StatusServer: %d',
+                flags, status, statusServer))
+            print(string.format('[UniquePets]   Is Player: %s  Is NPC: %s  Is Mob: %s',
+                (bit.band(flags, 0x0001) ~= 0) and 'Y' or 'N',
+                (bit.band(flags, 0x0002) ~= 0) and 'Y' or 'N',
+                (bit.band(flags, 0x0010) ~= 0) and 'Y' or 'N'))
+            print('[UniquePets]   Note: TrustFlag is NOT set on TYPE_PET entities (server confirmed)')
+            return
+        end
+
+        if (sub == 'petsit') then
+            local pet, idx = get_pet_entity()
+            if (not pet) then
+                print('[UniquePets] No pet found.')
+                return
+            end
+            local animVal = 33
+            if (a[3]) then animVal = tonumber(a[3]) or 33 end
+            print(string.format('[UniquePets] Forcing pet %s (idx %d) status to %d...',
+                pet.Name or '?', idx, animVal))
+
+            local entMgr = AshitaCore:GetMemoryManager():GetEntity()
+            entMgr:SetStatus(idx, animVal)
+            entMgr:SetStatusServer(idx, animVal)
+            inject_entity_packet(idx, animVal)
+            print('[UniquePets]   Done. Try values: 33=heal, 47=sit, 0=normal')
+            return
+        end
+
+        if (sub == 'petanim') then
+            local pet, idx = get_pet_entity()
+            if (not pet) then
+                print('[UniquePets] No pet found.')
+                return
+            end
+            local field = a[3] and a[3]:lower() or 'play'
+            local val = tonumber(a[4]) or 0
+            local entMgr = AshitaCore:GetMemoryManager():GetEntity()
+            if (field == 'play') then
+                entMgr:SetAnimationPlay(idx, val)
+                print(string.format('[UniquePets] SetAnimationPlay(%d, %d)', idx, val))
+            elseif (field == 'step') then
+                entMgr:SetAnimationStep(idx, val)
+                print(string.format('[UniquePets] SetAnimationStep(%d, %d)', idx, val))
+            elseif (field == 'sub') then
+                -- animationsub via packet injection at offset 0x2A
+                local pkt = {}
+                for i = 1, 0x38 do pkt[i] = 0 end
+                local size_words = 0x0E
+                local header = bit.bor(0x0E, bit.lshift(size_words, 9))
+                pkt[0x00 + 1] = bit.band(header, 0xFF)
+                pkt[0x01 + 1] = bit.band(bit.rshift(header, 8), 0xFF)
+                local sid = pet.ServerId
+                pkt[0x04 + 1] = bit.band(sid, 0xFF)
+                pkt[0x05 + 1] = bit.band(bit.rshift(sid, 8), 0xFF)
+                pkt[0x06 + 1] = bit.band(bit.rshift(sid, 16), 0xFF)
+                pkt[0x07 + 1] = bit.band(bit.rshift(sid, 24), 0xFF)
+                pkt[0x08 + 1] = bit.band(idx, 0xFF)
+                pkt[0x09 + 1] = bit.band(bit.rshift(idx, 8), 0xFF)
+                pkt[0x0A + 1] = 0x04 -- UPDATE_HP
+                pkt[0x1E + 1] = entMgr:GetHPPercent(idx)
+                pkt[0x1F + 1] = entMgr:GetStatusServer(idx)
+                pkt[0x2A + 1] = val
+                AshitaCore:GetPacketManager():AddIncomingPacket(0x0E, pkt)
+                print(string.format('[UniquePets] Injected animationsub=%d via packet', val))
+            else
+                print('[UniquePets] Usage: /upets petanim play|step|sub <value>')
+            end
+            return
+        end
+
+        if (sub == 'petlook') then
+            local pet, idx = get_pet_entity()
+            if (not pet) then
+                print('[UniquePets] No pet found.')
+                return
+            end
+            local entMgr = AshitaCore:GetMemoryManager():GetEntity()
+            print(string.format('[UniquePets] Pet %s (idx %d) Look data:', pet.Name or '?', idx))
+            print(string.format('  Hair: %d (0x%04X)  Head: %d (0x%04X)',
+                pet.Look.Hair, pet.Look.Hair, pet.Look.Head, pet.Look.Head))
+            print(string.format('  Body: %d (0x%04X)  Hands: %d (0x%04X)',
+                pet.Look.Body, pet.Look.Body, pet.Look.Hands, pet.Look.Hands))
+            print(string.format('  Legs: %d (0x%04X)  Feet: %d (0x%04X)',
+                pet.Look.Legs, pet.Look.Legs, pet.Look.Feet, pet.Look.Feet))
+            print(string.format('  Main: %d (0x%04X)  Sub: %d (0x%04X)  Ranged: %d (0x%04X)',
+                pet.Look.Main, pet.Look.Main, pet.Look.Sub, pet.Look.Sub,
+                pet.Look.Ranged, pet.Look.Ranged))
+            print(string.format('  ModelUpdateFlags: %d (0x%04X)',
+                pet.ModelUpdateFlags, pet.ModelUpdateFlags))
+            return
+        end
+
+        if (sub == 'petmodel') then
+            local pet, idx = get_pet_entity()
+            if (not pet) then
+                print('[UniquePets] No pet found.')
+                return
+            end
+            local modelId = tonumber(a[3])
+            if (not modelId) then
+                print('[UniquePets] Usage: /upets petmodel <model_id>')
+                return
+            end
+            print(string.format('[UniquePets] Setting pet model to %d via direct memory write...',
+                modelId))
+            print(string.format('[UniquePets]   Before: Look.Hair=%d Look.Head=%d Look.Body=%d',
+                pet.Look.Hair, pet.Look.Head, pet.Look.Body))
+            pet.Look.Hair = modelId
+            pet.ModelUpdateFlags = 0x10
+            print(string.format('[UniquePets]   After Hair: Look.Hair=%d  ModelUpdateFlags=0x10',
+                pet.Look.Hair))
+            return
+        end
+
+        if (sub == 'petdump') then
+            local pet, idx = get_pet_entity()
+            if (not pet) then
+                print('[UniquePets] No pet found.')
+                return
+            end
+            local entMgr = AshitaCore:GetMemoryManager():GetEntity()
+            print(string.format('[UniquePets] Pet %s (idx %d):', pet.Name or '?', idx))
+            print(string.format('  Status: %d  StatusServer: %d',
+                entMgr:GetStatus(idx), entMgr:GetStatusServer(idx)))
+            print(string.format('  AnimationPlay: %d  AnimationStep: %d',
+                entMgr:GetAnimationPlay(idx), entMgr:GetAnimationStep(idx)))
+            print(string.format('  SpawnFlags: 0x%04X  HPP: %d%%',
+                entMgr:GetSpawnFlags(idx), entMgr:GetHPPercent(idx)))
+            return
+        end
+
+        if (sub == 'petunsit') then
+            local pet, idx = get_pet_entity()
+            if (not pet) then
+                print('[UniquePets] No pet found.')
+                return
+            end
+            local entMgr = AshitaCore:GetMemoryManager():GetEntity()
+            entMgr:SetStatus(idx, 0)
+            entMgr:SetStatusServer(idx, 0)
+            inject_entity_packet(idx, 0)
+            model_sync.forced_state = nil
+            print('[UniquePets] Pet reset to status 0.')
+            return
+        end
+
+        if (sub == 'debug') then
+            debug_mode = not debug_mode
+            print(string.format('[UniquePets] Debug: %s', debug_mode and 'ON' or 'OFF'))
+            return
+        end
+
+        if (sub == 'healsync' or sub == 'modelsync') then
+            -- /upets modelsync  — toggles model sync on/off
+            -- idle/heal models are now configured per-pet in the UI
+            model_sync.enabled = not model_sync.enabled
+            config.model_sync_enabled = model_sync.enabled
+            safe_settings_save()
+            print(string.format('[UniquePets] Model sync: %s', model_sync.enabled and 'ON' or 'OFF'))
+            print('[UniquePets]   Configure per-pet idle/heal models in the UI (/upets)')
+            return
+        end
+
         show_ui = not show_ui
     end
 end)
@@ -303,42 +603,33 @@ ashita.events.register('packet_in', 'upets_model_packet', function (e)
     local ent = GetEntity(actIndex)
     if (not ent or not ent.Name) then return end
 
-    local subKind = bit.band(struct.unpack('H', e.data, 0x31), 0x07)
-    if (subKind ~= 0) then return end
-
     local entityName = ent.Name
     local entSid     = struct.unpack('L', e.data, 0x05)
+    local subKind = bit.band(struct.unpack('H', e.data, 0x31), 0x07)
 
+    -- Model patching (subKind 0 only -- standard model format)
+    if (subKind == 0) then
     -- Local pet
     local petSid = get_local_pet_server_id()
     if (petSid and entSid == petSid) then
-
 		local model = find_with_wildcards(config.local_player, entityName)
-		
 		if (model) then
 			ashita.bits.pack_be(e.data_modified_raw, model, 0x32, 0, 16)		
-			
 			patchedPets[entSid] = {
 				pet      = entityName,
 				owner    = local_player_name,
 				is_local = true,
 			}			
 		end
-        return
-    end
-
+        else
     -- Remote pet
     local ownerAct = remotePets.byPetActIndex[actIndex]
-    if (not ownerAct) then return end
-
+            if (ownerAct) then
     local ownerName = get_entity_name(ownerAct)
-    if (not ownerName) then return end
-	
+                if (ownerName) then
     local playerCfg = find_with_wildcards(config.players, ownerName)
-    if (not playerCfg) then return end
-
+                    if (playerCfg) then
 	local model = find_with_wildcards(playerCfg, entityName)
-	
 	if (model) then
 		ashita.bits.pack_be(e.data_modified_raw, model, 0x32, 0, 16)
 		patchedPets[entSid] = {
@@ -347,13 +638,45 @@ ashita.events.register('packet_in', 'upets_model_packet', function (e)
 			is_local = false,
 		}
 	end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Model sync: override model bytes in packets when idle or heal model is active
+    if (model_sync.enabled and model_sync.forced_state and patchedPets[entSid] and subKind == 0) then
+        local petInfo = patchedPets[entSid]
+        local petSync = petInfo and get_pet_sync(petInfo.pet)
+        if (petSync) then
+            local override_model = nil
+            if (model_sync.forced_state == 'heal' and petSync.heal_model and petSync.heal_model > 0) then
+                override_model = petSync.heal_model
+            elseif (model_sync.forced_state == 'idle' and petSync.idle_model and petSync.idle_model > 0) then
+                override_model = petSync.idle_model
+            end
+            if (override_model) then
+                ashita.bits.pack_be(e.data_modified_raw, override_model, 0x32, 0, 16)
+            end
+        end
+    end
+
+    -- Cache the final packet bytes for patched pets so we can replay with different models
+    if (patchedPets[entSid] and subKind == 0) then
+        local cached = {}
+        for i = 1, e.size do
+            cached[i] = struct.unpack('B', e.data_modified, i)
+        end
+        lastPetPacket[entSid] = cached
+    end
+
 end)
 
 ------------------------------------------------------------
 -- Animation Patching (0x0028)
 ------------------------------------------------------------
 ashita.events.register('packet_in', 'upets_animation_packet', function (e)
-    if (e.id ~= 0x0028 or config.is_patching == 0) then return end
+    if (e.id ~= 0x0028) then return end
 
 	-- Initialize Packet Reading 
 	-- We need to consume/read the packet and log data as we go
@@ -387,127 +710,93 @@ ashita.events.register('packet_in', 'upets_animation_packet', function (e)
 	local petInfo = patchedPets[serverId]
 	if (not petInfo) then return end
 
+    if (debug_mode) then
+        print(string.format('[UniquePets] Action: cmd_no=%d (%s) cmd_arg=%d targets=%d pet=%s',
+            cmd_no, get_action_name(cmd_no), cmd_arg, targetCount, petInfo.pet or '?'))
+    end
+
+    -- Advanced per-pet override: match rules by cmd_arg (works regardless of global patching)
+    if (config.advanced_patching == 1) then
+        local rules = get_pet_rules(petInfo)
+        local rule = find_matching_rule(rules, cmd_arg, cmd_no)
+
+        if (rule) then
+            if (debug_mode) then
+                print(string.format('[UniquePets] MATCHED rule: match=%s from=%d to=%d action_id=%s',
+                    tostring(rule.match or 'anim'), rule.from, rule.to, tostring(rule.action_id or rule.spell_id)))
+            end
+            local target_anim = rule.to
+            local action_id = rule.action_id or rule.spell_id
+
+            if (target_anim == 1) then
+                ashita.bits.pack_be(e.data_modified_raw, 812348513, 0, cmd_argOffset, 32)
+            elseif (action_id) then
+                ashita.bits.pack_be(e.data_modified_raw, action_id, 0, cmd_argOffset, 32)
+            end
+
+            -- Spells and monster skills need per-target Animation injection
+            if (target_anim == 4 or target_anim == 7 or target_anim == 11) then
+                local anim_inject = action_id or 1
+
+                actionPacket.Targets = T{}
+                for i = 1, targetCount do
+                    local target = T{}
+                    target.Id = UnpackBits(32)
+                    local actionCount = UnpackBits(4)
+                    target.Actions = T{}
+                    for j = 1, actionCount do
+                        local action = {}
+                        action.Reaction = UnpackBits(5)
+                        action.Animation = UnpackBits(12)
+
+                        subkind = bitOffset - 12
+                        ashita.bits.pack_be(e.data_modified_raw, anim_inject, 0, subkind, 12)
+
+                        action.SpecialEffect = UnpackBits(7)
+                        action.Knockback = UnpackBits(3)
+                        action.Param = UnpackBits(17)
+                        action.Message = UnpackBits(10)
+                        action.Flags = UnpackBits(31)
+
+                        local hasAdditionalEffect = (UnpackBits(1) == 1)
+                        if hasAdditionalEffect then
+                            UnpackBits(10)
+                            UnpackBits(17)
+                            UnpackBits(10)
+                        end
+
+                        local hasSpikesEffect = (UnpackBits(1) == 1)
+                        if hasSpikesEffect then
+                            UnpackBits(10)
+                            UnpackBits(14)
+                            UnpackBits(10)
+                        end
+
+                        target.Actions:append(action)
+                    end
+                    actionPacket.Targets:append(target)
+                end
+            end
+
+            ashita.bits.pack_be(e.data_modified_raw, target_anim, 82, 4)
+            return
+        end
+    end
+
+    -- Global fallback patching (requires is_patching)
+    if (config.is_patching == 0) then return end
+
     local anim_name = get_action_name(cmd_no)
 	local matches_target = 13
-											
 	if (config.anim_to_patch ~= 0) then
 		matches_target = config.anim_to_patch
 	end
 	
-	-- Advanced per-pet override
-	if (config.advanced_patching == 1 and (cmd_no == 13 or cmd_no == matches_target)) then
-		local override_anim = nil
-
-		if (petInfo.is_local) then
-			override_anim =
-				find_with_wildcards(
-					config.pet_anim_overrides.local_player,
-					petInfo.pet
-				)
-		else
-			local p = config.pet_anim_overrides.players[petInfo.owner]
-			if (p) then
-				override_anim = find_with_wildcards(p, petInfo.pet)
-			end
-		end
-
-		if (override_anim and override_anim ~= 0) then
-			
-			-- If we're overriding for attacks, provide the cmd_arg info needed first
-			if (override_anim == 1) then
+    if (string.find(anim_name, 'Unknown') or cmd_no == matches_target) then
+        if (config.anim_value == 1) then
 				ashita.bits.pack_be(e.data_modified_raw, 812348513, 0, cmd_argOffset, 32)
 			end
-			
-			-- Spell animation override
-			if (override_anim == 4) then
-				
-				-- Collect spell id if provided
-				local spell_id_inject = 1 -- default
-				
-				-- Spell ID Injection for spell casting animation
-				local spell_overrides = config.pet_spell_overrides
-				if (spell_overrides) then
-					if (petInfo.is_local) then
-						local t = spell_overrides.local_player
-						if (t and t[petInfo.pet]) then
-							spell_id_inject = t[petInfo.pet]
-						end
-					else
-						local p = spell_overrides.players
-						if (p and p[petInfo.owner]
-							and p[petInfo.owner][petInfo.pet]) then
-							spell_id_inject = p[petInfo.owner][petInfo.pet]
-						end
-					end
-				end				
-				
-				-- Read through packet further to do animation injection
-				actionPacket.Targets = T{};
-				for i = 1,targetCount do
-					local target = T{};
-					target.Id = UnpackBits(32);
-					local actionCount = UnpackBits(4);
-					target.Actions = T{};
-					for j = 1,actionCount do
-						local action = {};
-						action.Reaction = UnpackBits(5);
-						action.Animation = UnpackBits(12);
-						
-						-- "Animation" here is also known as the sub_kind in this packet
-						subkind = bitOffset-12
-						
-						-- We inject the spell ID into cmd_arg and sub_kind
-						ashita.bits.pack_be(e.data_modified_raw, spell_id_inject, 0, cmd_argOffset, 32)
-						
-						ashita.bits.pack_be(e.data_modified_raw, spell_id_inject, 0, subkind, 12);
-						
-						action.SpecialEffect = UnpackBits(7);
-						action.Knockback = UnpackBits(3);
-						action.Param = UnpackBits(17);
-						action.Message = UnpackBits(10);
-						action.Flags = UnpackBits(31);
-						
-						local hasAdditionalEffect = (UnpackBits(1) == 1);
-						if hasAdditionalEffect then
-							local additionalEffect = {};
-							additionalEffect.Damage = UnpackBits(10);
-							additionalEffect.Param = UnpackBits(17);
-							additionalEffect.Message = UnpackBits(10);
-							action.AdditionalEffect = additionalEffect;
-						end
-
-						local hasSpikesEffect = (UnpackBits(1) == 1);
-						if hasSpikesEffect then
-							local spikesEffect = {};
-							spikesEffect.Damage = UnpackBits(10);
-							spikesEffect.Param = UnpackBits(14);
-							spikesEffect.Message = UnpackBits(10);
-							action.SpikesEffect = spikesEffect;
-						end
-
-						target.Actions:append(action);
-					end
-					actionPacket.Targets:append(target);
-				end					
-			end			
-			
-			ashita.bits.pack_be(e.data_modified_raw, override_anim, 82, 4)
-			return
-		end
-	end
-	
-	if (string.find(anim_name, 'Unknown') or cmd_no == matches_target) then
-		
-		-- Patch animation
-
-		-- If we're overriding for attacks, provide the cmd_arg info needed first
-		if (override_anim == 1) then
-			ashita.bits.pack_be(e.data_modified_raw, 812348513, 0, bitOffset-32, 32)
-		end		
-		
         ashita.bits.pack_be(e.data_modified_raw, config.anim_value, 82, 4)
-
-        local actor_name = get_actor_name(serverId)
     end
 end)
 
@@ -519,8 +808,67 @@ end)
 local ui_player = { '' }
 local ui_pet    = { '' }
 local ui_model  = { '' }
-
 ashita.events.register('d3d_present', 'upets_ui', function ()
+
+    -- Model sync: per-pet idle/combat/heal model transitions
+    if (model_sync.enabled) then
+        local me = GetPlayerEntity()
+        if (me) then
+            local myStatus = me.Status
+            local pet, petIdx = get_pet_entity()
+
+            if (pet and petIdx and patchedPets[pet.ServerId]) then
+                local petInfo = patchedPets[pet.ServerId]
+                local petSync = get_pet_sync(petInfo.pet)
+                local idleModel = petSync and petSync.idle_model
+                local healModel = petSync and petSync.heal_model
+
+                if (idleModel or healModel) then
+                    local combatModel = find_with_wildcards(
+                        petInfo.is_local and config.local_player or
+                        (config.players[petInfo.owner] or {}),
+                        petInfo.pet)
+
+                    local desired_state
+                    if (myStatus == 33) then
+                        desired_state = (healModel and healModel > 0) and 'heal' or nil
+                    elseif (myStatus == 1) then
+                        desired_state = 'combat'
+                    else
+                        desired_state = (idleModel and idleModel > 0) and 'idle' or nil
+                    end
+
+                    if (model_sync.swap_time and (os.clock() - model_sync.swap_time) < 3.0) then
+                        desired_state = 'heal'
+                    elseif (model_sync.swap_time) then
+                        model_sync.swap_time = nil
+                    end
+
+                    local desired_model
+                    if (desired_state == 'heal') then
+                        desired_model = healModel
+                    elseif (desired_state == 'idle') then
+                        desired_model = idleModel
+                    elseif (desired_state == 'combat' and combatModel) then
+                        desired_model = combatModel
+                    end
+
+                    if (desired_model) then
+                        if (model_sync.forced_state ~= desired_state) then
+                            pet.Look.Hair = desired_model
+                            pet.ModelUpdateFlags = 0x10
+                            model_sync.forced_state = desired_state
+                        elseif (pet.Look.Hair ~= desired_model) then
+                            pet.Look.Hair = desired_model
+                        end
+                    end
+                end
+            elseif (model_sync.forced_state) then
+                model_sync.forced_state = nil
+            end
+        end
+    end
+
     if (not show_ui) then return end
 
     if (not local_player_name) then
@@ -572,84 +920,147 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
                     end
                 end
 
+                if (model_sync.enabled) then
+                    imgui.SameLine()
+                    config.pet_model_sync = config.pet_model_sync or T{}
+                    local pms = config.pet_model_sync[pet] or {}
+                    ui_model_sync_bufs[pet] = ui_model_sync_bufs[pet] or {
+                        idle = { tostring(pms.idle_model or '') },
+                        heal = { tostring(pms.heal_model or '') },
+                    }
+                    local syncBuf = ui_model_sync_bufs[pet]
+                    imgui.TextColored({ 0.5, 0.8, 1, 1 }, 'Idle:')
+                    imgui.SameLine()
+                    imgui.SetNextItemWidth(50)
+                    imgui.InputText('##idle_' .. pet, syncBuf.idle, 16)
+                    imgui.SameLine()
+                    imgui.TextColored({ 0.5, 0.8, 1, 1 }, 'Heal:')
+                    imgui.SameLine()
+                    imgui.SetNextItemWidth(50)
+                    imgui.InputText('##heal_' .. pet, syncBuf.heal, 16)
+                    imgui.SameLine()
+                    if (imgui.SmallButton('Set##sync_' .. pet)) then
+                        local idleVal = to_int(syncBuf.idle[1])
+                        local healVal = to_int(syncBuf.heal[1])
+                        if (idleVal or healVal) then
+                            config.pet_model_sync[pet] = {
+                                idle_model = idleVal or 0,
+                                heal_model = healVal or 0,
+                            }
+                        else
+                            config.pet_model_sync[pet] = nil
+                            ui_model_sync_bufs[pet] = nil
+                        end
+                        safe_settings_save()
+                    end
+                end
 
 				if (config.advanced_patching == 1) then
-					ui_anim_override_buffers.local_player[pet] =
-						ui_anim_override_buffers.local_player[pet]
-						or { tostring(config.pet_anim_overrides.local_player[pet] or '') }
+                    config.pet_overrides = config.pet_overrides or T{}
+                    config.pet_overrides.local_player = config.pet_overrides.local_player or T{}
+                    local rules = config.pet_overrides.local_player[pet]
 
-					imgui.SameLine()
-					imgui.Text('|')
-					imgui.SameLine()
-					imgui.Text('Anim. ID:')
-					imgui.SameLine()
+                    if (rules and #rules > 0) then
+                        if (imgui.TreeNode('Rules##lr_' .. pet)) then
+                            local del_idx = nil
+                            if (imgui.BeginTable('lrules_' .. pet, 5,
+                                    ImGuiTableFlags_Borders + ImGuiTableFlags_RowBg)) then
+                                imgui.TableSetupColumn('', ImGuiTableColumnFlags_WidthFixed, 20)
+                                imgui.TableSetupColumn('Match', ImGuiTableColumnFlags_WidthFixed, 50)
+                                imgui.TableSetupColumn('From', ImGuiTableColumnFlags_WidthFixed, 70)
+                                imgui.TableSetupColumn('To Action', ImGuiTableColumnFlags_WidthFixed, 120)
+                                imgui.TableSetupColumn('Action ID', ImGuiTableColumnFlags_WidthFixed, 60)
+                                imgui.TableHeadersRow()
+
+                                for ri, rule in ipairs(rules) do
+                                    imgui.TableNextRow()
+                                    imgui.TableNextColumn()
+                                    if (imgui.SmallButton('X##lrd_' .. pet .. '_' .. ri)) then
+                                        del_idx = ri
+                                    end
+                                    imgui.TableNextColumn()
+                                    local mtype = rule.match == 'action' and 'Action' or 'Anim'
+                                    imgui.Text(mtype)
+                                    imgui.TableNextColumn()
+                                    if (rule.match == 'action') then
+                                        imgui.Text(tostring(rule.from or 0) .. ' ' .. get_action_name(rule.from or 0))
+                                    else
+                                        imgui.Text(tostring(rule.from or 0))
+                                    end
+                                    imgui.TableNextColumn()
+                                    imgui.Text(tostring(rule.to or 0) .. ' ' .. get_action_name(rule.to or 0))
+                                    imgui.TableNextColumn()
+                                    local aid = rule.action_id or rule.spell_id
+                                    imgui.Text(aid and tostring(aid) or '-')
+                                end
+
+                                imgui.EndTable()
+                            end
+
+                                if (del_idx) then
+                                    table.remove(rules, del_idx)
+                                    safe_settings_save()
+                                end
+
+                                imgui.TreePop()
+                            end
+                        end
+
+                    ui_override_add.local_player[pet] =
+                        ui_override_add.local_player[pet] or { { '' }, { '' }, { '' }, 0 }
+                    local bufs = ui_override_add.local_player[pet]
+                    if (type(bufs[4]) ~= 'number') then bufs[4] = 0 end
+
+                    local match_labels = { 'Anim', 'Action' }
 					imgui.SetNextItemWidth(60)
-					imgui.InputText(
-						'##ua_' .. pet,
-						ui_anim_override_buffers.local_player[pet],
-						8,
-						ImGuiInputTextFlags_CharsDecimal
-					)
-
-					if (imgui.IsItemDeactivatedAfterEdit()) then
-						local raw = ui_anim_override_buffers.local_player[pet][1]
-						local v = to_int(raw)
-
-						if (raw == '' or v == nil) then
-							config.pet_anim_overrides.local_player[pet] = nil
-						else
-							config.pet_anim_overrides.local_player[pet] = v
-						end
-
-						safe_settings_save()
-					end
-
-					-- NEW: Spell ID field when override == 4
-					local current_override =
-						to_int(ui_anim_override_buffers.local_player[pet][1])
-
-					if (current_override == 4) then
-						config.pet_spell_overrides = config.pet_spell_overrides or T{}
-						config.pet_spell_overrides.local_player =
-							config.pet_spell_overrides.local_player or T{}
-
-						ui_spell_override_buffers = ui_spell_override_buffers or T{}
-						ui_spell_override_buffers.local_player =
-							ui_spell_override_buffers.local_player or T{}
-
-						ui_spell_override_buffers.local_player[pet] =
-							ui_spell_override_buffers.local_player[pet]
-							or { tostring(
-								config.pet_spell_overrides.local_player[pet] or ''
-							)}
-						imgui.SameLine()
-						imgui.Text('|')
-						imgui.SameLine()
-						imgui.Text('Spell ID:')
-						imgui.SameLine()
-						imgui.SetNextItemWidth(70)
-						imgui.InputText(
-							'##us_' .. pet,
-							ui_spell_override_buffers.local_player[pet],
-							8,
-							ImGuiInputTextFlags_CharsDecimal
-						)
-
-						if (imgui.IsItemDeactivatedAfterEdit()) then
-							local v =
-								to_int(ui_spell_override_buffers.local_player[pet][1])
-
-							if (v == nil) then
-								config.pet_spell_overrides.local_player[pet] = nil
-							else
-								config.pet_spell_overrides.local_player[pet] = v
-							end
-
-							safe_settings_save()
-						end
-					end					
-					
-				end --END: Advanced Patching
+                    if (imgui.BeginCombo('##lra_match_' .. pet, match_labels[bufs[4] + 1])) then
+                        for mi = 0, 1 do
+                            if (imgui.Selectable(match_labels[mi + 1], bufs[4] == mi)) then
+                                bufs[4] = mi
+                            end
+                        end
+                        imgui.EndCombo()
+                    end
+                    imgui.SameLine()
+                    imgui.SetNextItemWidth(60)
+                    imgui.InputText('##lra_from_' .. pet, bufs[1], 8, ImGuiInputTextFlags_CharsDecimal)
+                    imgui.SameLine()
+                    imgui.SetNextItemWidth(40)
+                    imgui.InputText('##lra_to_' .. pet, bufs[2], 8, ImGuiInputTextFlags_CharsDecimal)
+                    imgui.SameLine()
+                    imgui.SetNextItemWidth(50)
+                    imgui.InputText('##lra_sp_' .. pet, bufs[3], 8, ImGuiInputTextFlags_CharsDecimal)
+                    imgui.SameLine()
+                    if (imgui.SmallButton('+##lra_' .. pet)) then
+                        local from_v = to_int(bufs[1][1])
+                        local to_v = to_int(bufs[2][1])
+                        if (from_v and to_v) then
+                            config.pet_overrides.local_player[pet] =
+                                config.pet_overrides.local_player[pet] or {}
+                            local new_rule = { from = from_v, to = to_v }
+                            if (bufs[4] == 1) then new_rule.match = 'action' end
+                            local aid = to_int(bufs[3][1])
+                            if (aid) then new_rule.action_id = aid end
+                            local replaced = false
+                            for ri, r in ipairs(config.pet_overrides.local_player[pet]) do
+                                if (r.from == new_rule.from and r.match == new_rule.match) then
+                                    config.pet_overrides.local_player[pet][ri] = new_rule
+                                    replaced = true
+                                    break
+                                end
+                            end
+                            if (not replaced) then
+                                table.insert(config.pet_overrides.local_player[pet], new_rule)
+                            end
+                            safe_settings_save()
+                            bufs[1][1] = ''
+                            bufs[2][1] = ''
+                            bufs[3][1] = ''
+                        end
+                    end
+                    imgui.SameLine()
+                    imgui.TextColored({ 0.5, 0.5, 0.5, 1 }, 'match / from / to / action')
+                end
 				
             end
 
@@ -717,101 +1128,115 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
                             end
                         end
                         
-					-- Advanced Patching	
+
 					if (config.advanced_patching == 1) then
-						ui_anim_override_buffers.players[pname] =
-							ui_anim_override_buffers.players[pname] or {}
+                        config.pet_overrides = config.pet_overrides or T{}
+                        config.pet_overrides.players = config.pet_overrides.players or T{}
+                        config.pet_overrides.players[pname] = config.pet_overrides.players[pname] or T{}
+                        local rules = config.pet_overrides.players[pname][pet]
 
-						ui_anim_override_buffers.players[pname][pet] =
-							ui_anim_override_buffers.players[pname][pet]
-							or { tostring(
-								config.pet_anim_overrides.players[pname]
-								and config.pet_anim_overrides.players[pname][pet]
-								or ''
-							)}
+                        if (rules and #rules > 0) then
+                            if (imgui.TreeNode('Rules##rr_' .. pname .. '_' .. pet)) then
+                                local del_idx = nil
+                                if (imgui.BeginTable('rrules_' .. pname .. '_' .. pet, 5,
+                                        ImGuiTableFlags_Borders + ImGuiTableFlags_RowBg)) then
+                                    imgui.TableSetupColumn('', ImGuiTableColumnFlags_WidthFixed, 20)
+                                    imgui.TableSetupColumn('Match', ImGuiTableColumnFlags_WidthFixed, 50)
+                                    imgui.TableSetupColumn('From', ImGuiTableColumnFlags_WidthFixed, 70)
+                                    imgui.TableSetupColumn('To Action', ImGuiTableColumnFlags_WidthFixed, 120)
+                                    imgui.TableSetupColumn('Action ID', ImGuiTableColumnFlags_WidthFixed, 60)
+                                    imgui.TableHeadersRow()
 
-						imgui.SameLine()
-						imgui.Text('|')
-						imgui.SameLine()
-						imgui.Text('Anim. ID:')
-						imgui.SameLine()
+                                    for ri, rule in ipairs(rules) do
+                                        imgui.TableNextRow()
+                                        imgui.TableNextColumn()
+                                        if (imgui.SmallButton('X##rrd_' .. pname .. '_' .. pet .. '_' .. ri)) then
+                                            del_idx = ri
+                                        end
+                                        imgui.TableNextColumn()
+                                        local mtype = rule.match == 'action' and 'Action' or 'Anim'
+                                        imgui.Text(mtype)
+                                        imgui.TableNextColumn()
+                                        if (rule.match == 'action') then
+                                            imgui.Text(tostring(rule.from or 0) .. ' ' .. get_action_name(rule.from or 0))
+                                        else
+                                            imgui.Text(tostring(rule.from or 0))
+                                        end
+                                        imgui.TableNextColumn()
+                                        imgui.Text(tostring(rule.to or 0) .. ' ' .. get_action_name(rule.to or 0))
+                                        imgui.TableNextColumn()
+                                        local aid = rule.action_id or rule.spell_id
+                                        imgui.Text(aid and tostring(aid) or '-')
+                                    end
+
+                                    imgui.EndTable()
+                                end
+
+                                if (del_idx) then
+                                    table.remove(rules, del_idx)
+                                    safe_settings_save()
+                                end
+
+                                imgui.TreePop()
+                            end
+                        end
+
+                        ui_override_add.players[pname] = ui_override_add.players[pname] or {}
+                        ui_override_add.players[pname][pet] =
+                            ui_override_add.players[pname][pet] or { { '' }, { '' }, { '' }, 0 }
+                        local bufs = ui_override_add.players[pname][pet]
+                        if (type(bufs[4]) ~= 'number') then bufs[4] = 0 end
+
+                        local match_labels = { 'Anim', 'Action' }
 						imgui.SetNextItemWidth(60)
-						imgui.InputText(
-							'##ua_' .. pname .. '_' .. pet,
-							ui_anim_override_buffers.players[pname][pet],
-							8,
-							ImGuiInputTextFlags_CharsDecimal
-						)
-
-						if (imgui.IsItemDeactivatedAfterEdit()) then
-							local raw = ui_anim_override_buffers.players[pname][pet][1]
-							local v = to_int(raw)
-
-							config.pet_anim_overrides.players[pname] =
-								config.pet_anim_overrides.players[pname] or T{}
-
-							if (raw == '' or v == nil) then
-								config.pet_anim_overrides.players[pname][pet] = nil
-							else
-								config.pet_anim_overrides.players[pname][pet] = v
-							end
-
-							safe_settings_save()
-						end
-
-						-- NEW: Spell ID field when override == 4
-						local current_override =
-							to_int(ui_anim_override_buffers.players[pname][pet][1])
-
-						if (current_override == 4) then
-							config.pet_spell_overrides = config.pet_spell_overrides or T{}
-							config.pet_spell_overrides.players =
-								config.pet_spell_overrides.players or T{}
-
-							config.pet_spell_overrides.players[pname] =
-								config.pet_spell_overrides.players[pname] or T{}
-
-							ui_spell_override_buffers = ui_spell_override_buffers or T{}
-							ui_spell_override_buffers.players =
-								ui_spell_override_buffers.players or T{}
-
-							ui_spell_override_buffers.players[pname] =
-								ui_spell_override_buffers.players[pname] or T{}
-
-							ui_spell_override_buffers.players[pname][pet] =
-								ui_spell_override_buffers.players[pname][pet]
-								or { tostring(
-									config.pet_spell_overrides.players[pname][pet] or ''
-								)}
-
-							imgui.SameLine()
-							imgui.Text('|')
-							imgui.SameLine()
-							imgui.Text('Spell ID:')
-							imgui.SameLine()
-							imgui.SetNextItemWidth(70)
-							imgui.InputText(
-								'##us_' .. pname .. '_' .. pet,
-								ui_spell_override_buffers.players[pname][pet],
-								8,
-								ImGuiInputTextFlags_CharsDecimal
-							)
-
-							if (imgui.IsItemDeactivatedAfterEdit()) then
-								local v =
-									to_int(ui_spell_override_buffers.players[pname][pet][1])
-
-								if (v == nil) then
-									config.pet_spell_overrides.players[pname][pet] = nil
-								else
-									config.pet_spell_overrides.players[pname][pet] = v
-								end
-
-								safe_settings_save()
-							end
-						end
-						
-					end	--END: Advanced Patching
+                        if (imgui.BeginCombo('##rra_match_' .. pname .. '_' .. pet, match_labels[bufs[4] + 1])) then
+                            for mi = 0, 1 do
+                                if (imgui.Selectable(match_labels[mi + 1], bufs[4] == mi)) then
+                                    bufs[4] = mi
+                                end
+                            end
+                            imgui.EndCombo()
+                        end
+                        imgui.SameLine()
+                        imgui.SetNextItemWidth(60)
+                        imgui.InputText('##rra_from_' .. pname .. '_' .. pet, bufs[1], 8, ImGuiInputTextFlags_CharsDecimal)
+                        imgui.SameLine()
+                        imgui.SetNextItemWidth(40)
+                        imgui.InputText('##rra_to_' .. pname .. '_' .. pet, bufs[2], 8, ImGuiInputTextFlags_CharsDecimal)
+                        imgui.SameLine()
+                        imgui.SetNextItemWidth(50)
+                        imgui.InputText('##rra_sp_' .. pname .. '_' .. pet, bufs[3], 8, ImGuiInputTextFlags_CharsDecimal)
+                        imgui.SameLine()
+                        if (imgui.SmallButton('+##rra_' .. pname .. '_' .. pet)) then
+                            local from_v = to_int(bufs[1][1])
+                            local to_v = to_int(bufs[2][1])
+                            if (from_v and to_v) then
+                                config.pet_overrides.players[pname][pet] =
+                                    config.pet_overrides.players[pname][pet] or {}
+                                local new_rule = { from = from_v, to = to_v }
+                                if (bufs[4] == 1) then new_rule.match = 'action' end
+                                local aid = to_int(bufs[3][1])
+                                if (aid) then new_rule.action_id = aid end
+                                local replaced = false
+                                for ri, r in ipairs(config.pet_overrides.players[pname][pet]) do
+                                    if (r.from == new_rule.from and r.match == new_rule.match) then
+                                        config.pet_overrides.players[pname][pet][ri] = new_rule
+                                        replaced = true
+                                        break
+                                    end
+                                end
+                                if (not replaced) then
+                                    table.insert(config.pet_overrides.players[pname][pet], new_rule)
+                                end
+                                safe_settings_save()
+                                bufs[1][1] = ''
+                                bufs[2][1] = ''
+                                bufs[3][1] = ''
+                            end
+                        end
+                        imgui.SameLine()
+                        imgui.TextColored({ 0.5, 0.5, 0.5, 1 }, 'match / from / to / action')
+                    end
 						
                     end 
 
@@ -862,14 +1287,12 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 
             if (imgui.Button('Export Your Pets')) then
                 if (local_player_name) then
+                    config.pet_overrides = config.pet_overrides or T{}
 					write_export(local_player_name .. '_Export.lua', T{
 						players = T{
 							[local_player_name] = T{
 								models = config.local_player,
-								anim_overrides = config.pet_anim_overrides.local_player,
-								spell_overrides = config.pet_spell_overrides
-													and config.pet_spell_overrides.local_player
-													or T{},
+                                overrides = config.pet_overrides.local_player or T{},
 							}
 						},
 						animation_settings = T{
@@ -885,15 +1308,13 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
             if (imgui.Button('Import Your Pets')) then
                 local data = load_import(local_player_name .. '_Export.lua')
                 if (data) then
-					local pname, models, anims, spells = validate_single_player_import(data)
+                    local pname, models, overrides = validate_single_player_import(data)
 					if (pname) then
 						config.local_player = models or T{}
-						config.pet_anim_overrides.local_player = anims or T{}
 
-						config.pet_spell_overrides = config.pet_spell_overrides or T{}
-						config.pet_spell_overrides.local_player = spells or T{}
+                        config.pet_overrides = config.pet_overrides or T{}
+                        config.pet_overrides.local_player = overrides or T{}
 
-						-- Optional: import animation globals if present
 						if (type(data.animation_settings) == 'table') then
 							config.is_patching = data.animation_settings.is_patching or config.is_patching
 							config.anim_value = data.animation_settings.anim_value or config.anim_value
@@ -904,7 +1325,6 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 						ui_local_models = {}
 						safe_settings_save()
 					end
-
                 end
             end
 
@@ -916,13 +1336,11 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
             imgui.Text('and overwrite your pets in the Other Players tab.')
             imgui.Separator()
             if (imgui.Button('Export All Other Players')) then
+                config.pet_overrides = config.pet_overrides or T{}
 				write_export('OtherPets_Export.lua', T{
 					players = T{
 						models = config.players,
-						anim_overrides = config.pet_anim_overrides.players,
-						spell_overrides = config.pet_spell_overrides
-											and config.pet_spell_overrides.players
-											or T{},
+                        overrides = config.pet_overrides.players or T{},
 					}
 				})
             end
@@ -931,13 +1349,10 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
             if (imgui.Button('Import and Overwrite Other Pets')) then
                 local data = load_import('OtherPets_Export.lua')
 				if (data and type(data.players) == 'table') then
-
-					-- Backwards compatibility
 					if (data.players.models) then
 						config.players = T(data.players.models)
-						config.pet_anim_overrides.players = T(data.players.anim_overrides or {})
-						config.pet_spell_overrides = config.pet_spell_overrides or T{}
-						config.pet_spell_overrides.players = T(data.players.spell_overrides or {})
+                        config.pet_overrides = config.pet_overrides or T{}
+                        config.pet_overrides.players = T(data.players.overrides or {})
 					else
 						config.players = T(data.players)
 					end
@@ -945,7 +1360,6 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 					ui_remote_models = {}
 					safe_settings_save()
 				end
-
             end
 
             imgui.Separator()
@@ -958,18 +1372,13 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
             if (imgui.Button('Import Single Player')) then
                 local data = load_import(ui_player[1] .. '_Export.lua')
                 if (data) then
-					local pname, models, anims, spells = validate_single_player_import(data)
+                    local pname, models, overrides = validate_single_player_import(data)
 					if (pname) then
 						config.players[pname] = models or T{}
 
-						config.pet_anim_overrides.players[pname] =
-							anims or T{}
-
-						config.pet_spell_overrides = config.pet_spell_overrides or T{}
-						config.pet_spell_overrides.players =
-							config.pet_spell_overrides.players or T{}
-						config.pet_spell_overrides.players[pname] =
-							spells or T{}
+                        config.pet_overrides = config.pet_overrides or T{}
+                        config.pet_overrides.players = config.pet_overrides.players or T{}
+                        config.pet_overrides.players[pname] = overrides or T{}
 
 						ui_remote_models[pname] = {}
 						safe_settings_save()
@@ -1076,8 +1485,84 @@ ashita.events.register('d3d_present', 'upets_ui', function ()
 			end
 
 			imgui.Text('Note: Enables individual patching for EACH pet.')      
+
             imgui.EndTabItem()
         end
+
+        ----------------------------------------------------
+        -- Model Sync
+        ----------------------------------------------------
+        if (imgui.BeginTabItem('Model Sync')) then
+            imgui.TextColored({ 0.4, 0.8, 1, 1 },
+                'Swap pet models based on player state (idle/combat/heal)')
+            imgui.TextColored({ 0.6, 0.6, 0.6, 1 },
+                'Configure idle and heal models per pet in the Your Pets tab.')
+            imgui.Separator()
+            imgui.Spacing()
+
+            local ms_enabled = { model_sync.enabled or false }
+            if (imgui.Checkbox('Enable Model Sync', ms_enabled)) then
+                model_sync.enabled = ms_enabled[1]
+                config.model_sync_enabled = model_sync.enabled
+                safe_settings_save()
+            end
+
+            imgui.Spacing()
+            imgui.Separator()
+
+            imgui.Text('Current State:')
+            imgui.SameLine()
+            if (not model_sync.enabled) then
+                imgui.TextColored({ 0.5, 0.5, 0.5, 1 }, 'Disabled')
+            elseif (model_sync.forced_state == 'heal') then
+                imgui.TextColored({ 0.4, 1, 0.4, 1 }, 'Healing')
+            elseif (model_sync.forced_state == 'idle') then
+                imgui.TextColored({ 0.6, 0.8, 1, 1 }, 'Idle')
+            elseif (model_sync.forced_state == 'combat') then
+                imgui.TextColored({ 1, 0.8, 0.4, 1 }, 'Combat')
+            else
+                imgui.TextColored({ 0.5, 1, 0.5, 1 }, 'Ready')
+            end
+
+            -- Show current pet's sync config
+            local pet, petIdx = get_pet_entity()
+            if (pet and patchedPets[pet.ServerId]) then
+                local petInfo = patchedPets[pet.ServerId]
+                local petSync = get_pet_sync(petInfo.pet)
+                imgui.Spacing()
+                imgui.Text(string.format('Active Pet: %s', petInfo.pet))
+                if (petSync) then
+                    local cm = find_with_wildcards(
+                        petInfo.is_local and config.local_player or
+                        (config.players[petInfo.owner] or {}),
+                        petInfo.pet)
+                    if (cm) then
+                        imgui.TextColored({ 1, 0.8, 0.4, 1 },
+                            string.format('  Combat: %d', cm))
+                    end
+                    if (petSync.idle_model and petSync.idle_model > 0) then
+                        imgui.TextColored({ 0.5, 0.8, 1, 1 },
+                            string.format('  Idle: %d', petSync.idle_model))
+                    end
+                    if (petSync.heal_model and petSync.heal_model > 0) then
+                        imgui.TextColored({ 0.4, 1, 0.4, 1 },
+                            string.format('  Heal: %d', petSync.heal_model))
+                    end
+                else
+                    imgui.TextColored({ 0.6, 0.6, 0.6, 1 },
+                        '  No idle/heal models configured for this pet.')
+                end
+            end
+
+            imgui.Spacing()
+            imgui.Separator()
+            imgui.Spacing()
+            imgui.TextColored({ 0.6, 0.6, 0.6, 1 },
+                '/upets modelsync  -  toggle on/off')
+
+            imgui.EndTabItem()
+        end
+
 
         imgui.EndTabBar()
     end
